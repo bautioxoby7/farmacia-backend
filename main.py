@@ -68,7 +68,8 @@ def xls_to_text(file_bytes, filename):
         tmp.write(file_bytes)
         tmp_path = tmp.name
     try:
-        df = pd.read_excel(tmp_path, header=None)
+        engine = "xlrd" if suffix == ".xls" else "openpyxl"
+        df = pd.read_excel(tmp_path, header=None, engine=engine)
         return df.to_csv(index=False)
     finally:
         os.unlink(tmp_path)
