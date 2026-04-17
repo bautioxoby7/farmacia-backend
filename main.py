@@ -165,8 +165,8 @@ def add_resumen_table(ws2, headers, data, table_name, ref, style):
 
 # ── PAMI ──────────────────────────────────────────────────────────────────────
 
-def build_pami_excel(d, q, mes, anio):
-    car = d['caratula']; opf = d['opf']; pre = d['pre']; pago = d['pago']; nr = d['nr']
+def build_pami_excel(data, q, mes, anio):
+    car = data['caratula']; opf = data['opf']; pre = data['pre']; pago = data['pago']; nr = data['nr']
 
     fecha_pres = parse_date(car['fecha_cierre'])
     dias_ant = days_diff(fecha_pres, parse_date(opf['fecha_opf']))
@@ -296,14 +296,14 @@ def build_pami_excel(d, q, mes, anio):
 
 # ── IOMA ──────────────────────────────────────────────────────────────────────
 
-def build_ioma_excel(d, mes, anio):
-    planes = d['planes']; opf = d['opf']; pre = d['pre']; pago = d['pago']; nr_data = d['nr']
+def build_ioma_excel(data, mes, anio):
+    planes = data['planes']; opf = data['opf']; pre = data['pre']; pago = data['pago']; nr_data = data['nr']
 
     total_recetas = sum(p.get('recetas',0) for p in planes.values())
     total_importe100 = sum(p.get('importe100',0) for p in planes.values())
     total_ac = sum(p.get('ac_instituto',0) for p in planes.values())
     afiliado = total_importe100 - total_ac
-    fecha_pres = parse_date(d['fecha_cierre'])
+    fecha_pres = parse_date(data['fecha_cierre'])
 
     total_nr=0; total_pond=0
     nr_por_fecha = nr_data.get('nr_por_fecha',[])
@@ -431,8 +431,8 @@ def build_ioma_excel(d, mes, anio):
 
 # ── OSDE ──────────────────────────────────────────────────────────────────────
 
-def build_osde_excel(d, mes, anio):
-    car=d['caratula']; pre=d['pre']; pago=d['pago']; nr=d['nr']
+def build_osde_excel(data, mes, anio):
+    car=data['caratula']; pre=data['pre']; pago=data['pago']; nr=data['nr']
     fecha_pres=parse_date(car['fecha_cierre'])
     dias_pago=days_diff(fecha_pres,parse_date(pago['fecha_pago']))
     dias_nr=days_diff(fecha_pres,parse_date(nr['nr_fecha']))
