@@ -63,6 +63,33 @@ def parse_json(text):
 
 def xls_to_text(file_bytes, filename):
     import tempfile
+    # Detectar si es XML/HTML disfrazado de XLS (común en sistemas de obras sociales)
+    sample = file_bytes[:20]
+    is_xml = (sample.startswith(b'\xff\xfe') or sample.startswith(b'<?xml') or
+              sample.startswith(b'<') or b'<html' in sample[:100].lower() or
+              b'<HTML' in sample[:100])
+    if is_xml:
+        # Decodificar como XML/HTML y extraer texto
+        try:
+            text = file_bytes.decode('utf-16')
+        except Exception:
+            try:
+                text = file_bytes.decode('utf-8', errors='replace')
+            except Exception:
+                text = file_bytes.decode('latin-1', errors='replace')
+        # Usar pandas para leer HTML
+        import io as _io
+        try:
+            tables = pd.read_html(_io.StringIO(text))
+            if tables:
+                return '\n'.join(df.to_csv(index=False) for df in tables)
+        except Exception:
+            pass
+        # Fallback: devolver texto plano sin tags
+        import re
+        clean = re.sub(r'<[^>]+>', ' ', text)
+        clean = re.sub(r'\s+', ' ', clean)
+        return clean
     suffix = '.xlsx' if filename.endswith('.xlsx') else '.xls'
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(file_bytes)
