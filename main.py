@@ -183,9 +183,9 @@ def build_pami_excel(data, q, mes, anio):
     total = afiliado + total_pagado
     deb_os = abs(pre['deb_cred_os']) if pre['deb_cred_os'] < 0 else 0
     cred_os = pre['deb_cred_os'] if pre['deb_cred_os'] > 0 else 0
-    bonificaciones = pre['bonif_ambulatorio'] + pre['bonif_tiras'] + pre['bonif_insulinas']
-    retenciones = pre['ret_gtos_adm_cofa'] + pre['retencion_colegio_art12'] + pre['fdo_prest_colfarma']
-    notas_cred = pre['nota_cred_ambulatorio'] + pre['nota_cred_insulina'] + pre['nota_cred_tiras']
+    bonificaciones = abs(pre['bonif_ambulatorio']) + abs(pre['bonif_tiras']) + abs(pre['bonif_insulinas'])
+    retenciones = abs(pre['ret_gtos_adm_cofa']) + abs(pre['retencion_colegio_art12']) + abs(pre['fdo_prest_colfarma'])
+    notas_cred = abs(pre['nota_cred_ambulatorio']) + abs(pre['nota_cred_insulina']) + abs(pre['nota_cred_tiras'])
     pct70 = car['diferencia_total'] * 0.7; pct30 = car['diferencia_total'] * 0.3
     dif_nr = total_naf_nrfd - notas_cred
     dif_efvo = EfSa - pre['efectivo_drogueria']
@@ -237,14 +237,14 @@ def build_pami_excel(data, q, mes, anio):
     box(ws,11,2,20,3)
 
     ws.merge_cells('E12:F12'); c(ws,'E12','BONIFICACIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'E13','Ambulatorio:'); n(ws,'F13',pre['bonif_ambulatorio'])
-    c(ws,'E14','Tiras:'); n(ws,'F14',pre['bonif_tiras'])
-    c(ws,'E15','Insulinas:'); n(ws,'F15',pre['bonif_insulinas'])
+    c(ws,'E13','Ambulatorio:'); n(ws,'F13',abs(pre['bonif_ambulatorio']))
+    c(ws,'E14','Tiras:'); n(ws,'F14',abs(pre['bonif_tiras']))
+    c(ws,'E15','Insulinas:'); n(ws,'F15',abs(pre['bonif_insulinas']))
     c(ws,'E16','TOTAL',bold=True); n(ws,'F16',bonificaciones)
     ws.merge_cells('E17:F17'); c(ws,'E17','RETENCIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'E18','Gastos Adm. COFA:'); n(ws,'F18',pre['ret_gtos_adm_cofa'])
-    c(ws,'E19','Colegio Art. 12 SU:'); n(ws,'F19',pre['retencion_colegio_art12'])
-    c(ws,'E20','Fdo Prest. COLFARMA:'); n(ws,'F20',pre['fdo_prest_colfarma'])
+    c(ws,'E18','Gastos Adm. COFA:'); n(ws,'F18',abs(pre['ret_gtos_adm_cofa']))
+    c(ws,'E19','Colegio Art. 12 SU:'); n(ws,'F19',abs(pre['retencion_colegio_art12']))
+    c(ws,'E20','Fdo Prest. COLFARMA:'); n(ws,'F20',abs(pre['fdo_prest_colfarma']))
     c(ws,'E21','TOTAL',bold=True); n(ws,'F21',retenciones)
     ws.merge_cells('E22:F22'); c(ws,'E22','DÉB. / CRÉD. OS',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'E23','Débito OS:'); n(ws,'F23',deb_os)
@@ -253,9 +253,9 @@ def build_pami_excel(data, q, mes, anio):
 
     ws.merge_cells('H12:L12'); c(ws,'H12','NOTAS DE CRÉDITO',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'I13','Monto según PRE',bold=True,halign='center'); c(ws,'K13','Monto según NR',bold=True,halign='center'); c(ws,'L13','Diferencia',bold=True,halign='center')
-    c(ws,'H14','Ambulatorio:'); n(ws,'I14',pre['nota_cred_ambulatorio'])
-    c(ws,'H15','Tiras:'); n(ws,'I15',pre['nota_cred_tiras'])
-    c(ws,'H16','Insulinas:'); n(ws,'I16',pre['nota_cred_insulina'])
+    c(ws,'H14','Ambulatorio:'); n(ws,'I14',abs(pre['nota_cred_ambulatorio']))
+    c(ws,'H15','Tiras:'); n(ws,'I15',abs(pre['nota_cred_tiras']))
+    c(ws,'H16','Insulinas:'); n(ws,'I16',abs(pre['nota_cred_insulina']))
     c(ws,'H17','TOTAL',bold=True); n(ws,'I17',notas_cred); n(ws,'K17',total_naf_nrfd); n(ws,'L17',dif_nr)
     ws.merge_cells('H18:L18'); c(ws,'H18','70% / 30%',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'I19','Monto según PRE',bold=True,halign='center'); c(ws,'K19','Monto según NR',bold=True,halign='center'); c(ws,'L19','Diferencia',bold=True,halign='center')
@@ -263,7 +263,7 @@ def build_pami_excel(data, q, mes, anio):
     c(ws,'H21','30% Pérdida'); n(ws,'I21',pct30)
     ws.merge_cells('H22:L22'); c(ws,'H22','EFECTIVO DROGUERÍA',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'I23','Monto según PRE',bold=True,halign='center'); c(ws,'K23','Monto según NR',bold=True,halign='center'); c(ws,'L23','Diferencia',bold=True,halign='center')
-    c(ws,'H24','TOTAL',bold=True); n(ws,'I24',pre['efectivo_drogueria']); n(ws,'K24',EfSa); n(ws,'L24',dif_efvo)
+    c(ws,'H24','TOTAL',bold=True); n(ws,'I24',abs(pre['efectivo_drogueria'])); n(ws,'K24',EfSa); n(ws,'L24',dif_efvo)
     box(ws,11,8,24,12)
 
     ws2 = wb.create_sheet('Resumen'); ws2.sheet_view.showGridLines = False
@@ -317,7 +317,7 @@ def build_ioma_excel(data, mes, anio):
     total_pagado = opf['efvo_ioma'] + liq_final + total_nr
     deb_os = abs(pre['deb_cred_os']) if pre['deb_cred_os']<0 else 0
     cred_os = pre['deb_cred_os'] if pre['deb_cred_os']>0 else 0
-    ret_cofa = pre['retencion_colegio_art12'] + pre['fdo_prest_colfarma']
+    ret_cofa = abs(pre['retencion_colegio_art12']) + abs(pre['fdo_prest_colfarma'])
     notas_cred = pre['nrf_ant'] + pre['nrf_def'] + pre['nrf_directas']
     dif_nr = total_nr - notas_cred
     dias_ant = days_diff(fecha_pres, parse_date(opf['fecha_opf']))
@@ -386,8 +386,8 @@ def build_ioma_excel(data, mes, anio):
     ws.merge_cells('E16:F16'); c(ws,'E16','BONIFICACIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'E17','TOTAL',bold=True); n(ws,'F17',pre['bonificaciones'])
     ws.merge_cells('E18:F18'); c(ws,'E18','RETENCIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'E19','Colegio Art. 12 SU:'); n(ws,'F19',pre['retencion_colegio_art12'])
-    c(ws,'E20','Fdo Prest. COLFARMA:'); n(ws,'F20',pre['fdo_prest_colfarma'])
+    c(ws,'E19','Colegio Art. 12 SU:'); n(ws,'F19',abs(pre['retencion_colegio_art12']))
+    c(ws,'E20','Fdo Prest. COLFARMA:'); n(ws,'F20',abs(pre['fdo_prest_colfarma']))
     c(ws,'E21','TOTAL',bold=True); n(ws,'F21',ret_cofa)
     ws.merge_cells('E22:F22'); c(ws,'E22','DÉB. / CRÉD. OS',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'E23','Débito OS:'); n(ws,'F23',deb_os); c(ws,'E24','Crédito OS:'); n(ws,'F24',cred_os)
