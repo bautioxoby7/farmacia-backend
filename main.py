@@ -318,7 +318,7 @@ def build_ioma_excel(data, mes, anio):
     deb_os = abs(pre['deb_cred_os']) if pre['deb_cred_os']<0 else 0
     cred_os = pre['deb_cred_os'] if pre['deb_cred_os']>0 else 0
     ret_cofa = abs(pre['retencion_colegio_art12']) + abs(pre['fdo_prest_colfarma'])
-    notas_cred = pre['nrf_ant'] + pre['nrf_def'] + pre['nrf_directas']
+    notas_cred = abs(pre['nrf_ant']) + abs(pre['nrf_def']) + abs(pre['nrf_directas'])
     dif_nr = total_nr - notas_cred
     dias_ant = days_diff(fecha_pres, parse_date(opf['fecha_opf']))
     dias_liq = days_diff(fecha_pres, parse_date(pago['fecha_pago']))
@@ -340,9 +340,10 @@ def build_ioma_excel(data, mes, anio):
     c(ws,'K3',round(dias_prom,1),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0.0')
 
     for coord,label,val,clr in [('B5:C5','IMPORTE 100%',total_importe100,MID_BLUE),('E5:F5','A/C INSTITUTO',total_ac,MID_BLUE),('H5:I5','AFILIADO',afiliado,MID_BLUE),('K5:L5','TOTAL PAGADO IOMA',total_pagado,GREEN)]:
-        ws.merge_cells(coord); start=coord.split(':')[0]
-        r=int(start[1]); c_letter=start[0]
+        ws.merge_cells(coord); start=coord.split(':')[0]; end=coord.split(':')[1]
+        r=int(start[1]); c_letter=start[0]; end_letter=end[0]
         c(ws,f'{c_letter}{r}',label,size=9,color=WHITE,fill=clr,halign='center')
+        coord6=f'{c_letter}{r+1}:{end_letter}{r+1}'; ws.merge_cells(coord6)
         n(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
 
     for col,col_dias,lbl,dias,val in [('B','C','ANTICIPO',dias_ant,opf['efvo_ioma']),('E','F','LIQ. FINAL',dias_liq,liq_final),('H','I','NOTAS RECUP.',round(dias_nr_pond,1),total_nr)]:
@@ -384,7 +385,7 @@ def build_ioma_excel(data, mes, anio):
     c(ws,'E14','Ing. Btos + Gcias Pago Final:'); n(ws,'F14',pago['ing_brutos_pago'])
     c(ws,'E15','TOTAL',bold=True); n(ws,'F15',total_ing_brutos)
     ws.merge_cells('E16:F16'); c(ws,'E16','BONIFICACIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'E17','TOTAL',bold=True); n(ws,'F17',pre['bonificaciones'])
+    c(ws,'E17','TOTAL',bold=True); n(ws,'F17',abs(pre['bonificaciones']))
     ws.merge_cells('E18:F18'); c(ws,'E18','RETENCIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'E19','Colegio Art. 12 SU:'); n(ws,'F19',abs(pre['retencion_colegio_art12']))
     c(ws,'E20','Fdo Prest. COLFARMA:'); n(ws,'F20',abs(pre['fdo_prest_colfarma']))
@@ -395,9 +396,9 @@ def build_ioma_excel(data, mes, anio):
 
     ws.merge_cells('H12:L12'); c(ws,'H12','NOTAS DE CRÉDITO',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'I13','Monto según PRE',bold=True,halign='center'); c(ws,'K13','Monto según NR',bold=True,halign='center'); c(ws,'L13','Diferencia',bold=True,halign='center')
-    c(ws,'H14','NRF Anticipo:'); n(ws,'I14',pre['nrf_ant'])
-    c(ws,'H15','NRF Definitivo:'); n(ws,'I15',pre['nrf_def'])
-    c(ws,'H16','NRF Directas:'); n(ws,'I16',pre['nrf_directas'])
+    c(ws,'H14','NRF Anticipo:'); n(ws,'I14',abs(pre['nrf_ant']))
+    c(ws,'H15','NRF Definitivo:'); n(ws,'I15',abs(pre['nrf_def']))
+    c(ws,'H16','NRF Directas:'); n(ws,'I16',abs(pre['nrf_directas']))
     c(ws,'H17','TOTAL',bold=True); n(ws,'I17',notas_cred); n(ws,'K17',total_nr); n(ws,'L17',dif_nr)
     nr_row=19
     ws.merge_cells(f'H{nr_row}:L{nr_row}'); c(ws,f'H{nr_row}','DESGLOSE DE PAGOS',bold=True,size=10,fill=LIGHT_BLUE,halign='center'); nr_row+=1
@@ -412,7 +413,7 @@ def build_ioma_excel(data, mes, anio):
     style=TableStyleInfo(name='TableStyleMedium2',showFirstColumn=False,showLastColumn=False,showRowStripes=True,showColumnStripes=False)
     h1=['RECETAS','IMPORTE 100%','A/C INSTITUTO','AFILIADO','%AFL','IOMA','%IOMA','DIAS PROM. PAGO','DEBITOS','RETENCIONES COFA','%RET','BONIFICACIONES','%BON','ING BRUTOS RETENIDOS']
     for i,h in enumerate(h1): ws2.cell(1,i+1,h)
-    row2=[total_recetas,total_importe100,total_ac,afiliado,afiliado/total_importe100 if total_importe100 else 0,total_pagado,total_pagado/total_ac if total_ac else 0,round(dias_prom,2),deb_os,ret_cofa,ret_cofa/total_ac if total_ac else 0,pre['bonificaciones'],pre['bonificaciones']/total_ac if total_ac else 0,total_ing_brutos]
+    row2=[total_recetas,total_importe100,total_ac,afiliado,afiliado/total_importe100 if total_importe100 else 0,total_pagado,total_pagado/total_ac if total_ac else 0,round(dias_prom,2),deb_os,ret_cofa,ret_cofa/total_ac if total_ac else 0,abs(pre['bonificaciones']),abs(pre['bonificaciones'])/total_ac if total_ac else 0,total_ing_brutos]
     for i,v in enumerate(row2):
         cell=ws2.cell(2,i+1); cell.value=v; cell.number_format='0.00%' if isinstance(v,float) and abs(v)<10 else '#,##0.00'
     tbl1=Table(displayName='tbl_reporte',ref='A1:N2'); tbl1.tableStyleInfo=style; ws2.add_table(tbl1)
@@ -597,15 +598,35 @@ async def reporte_ioma(
 
     for plan_file in planes:
         pb = await plan_file.read()
-        pd_data = parse_json(ask_claude(
-            pdf_to_content(pb, 'CARÁTULA PLAN IOMA') + [{"type":"text","text":"Leer Convenio/Plan para identificar el plan. Extraé: {\"plan\":\"nombre del plan\",\"recetas\":0,\"importe100\":0.0,\"ac_instituto\":0.0}"}],
+        # Detectar si es Resumen del Colegio (múltiples planes) o carátula individual
+        tipo_data = parse_json(ask_claude(
+            pdf_to_content(pb, 'DOCUMENTO PLAN IOMA') + [{"type":"text","text":"Este documento es un Resumen de Facturación del Colegio de Farmacéuticos con tabla de múltiples planes, O es una carátula individual de un solo plan IOMA. Respondé SOLO: {\"tipo\":\"resumen_colegio\"} o {\"tipo\":\"caratula_individual\"}"}],
             SYSTEM_JSON))
-        plan_name = pd_data.get('plan','').upper()
-        if 'MAMI' in plan_name: planes_data['MAMI'] = {'recetas':pd_data['recetas'],'importe100':pd_data['importe100'],'ac_instituto':pd_data['ac_instituto']}
-        elif 'MAYOR' in plan_name: planes_data['MAYOR COBERTURA'] = {'recetas':pd_data['recetas'],'importe100':pd_data['importe100'],'ac_instituto':pd_data['ac_instituto']}
-        elif 'AMPARO' in plan_name: planes_data['RECURSOS DE AMPARO'] = {'recetas':pd_data['recetas'],'importe100':pd_data['importe100'],'ac_instituto':pd_data['ac_instituto']}
-        elif 'DIRECTORIO' in plan_name: planes_data['RESOLUCIÓN DE DIRECTORIO'] = {'recetas':pd_data['recetas'],'importe100':pd_data['importe100'],'ac_instituto':pd_data['ac_instituto']}
-        elif 'VACUNA' in plan_name: planes_data['VACUNAS'] = {'recetas':pd_data['recetas'],'importe100':pd_data['importe100'],'ac_instituto':pd_data['ac_instituto']}
+        if tipo_data.get('tipo') == 'resumen_colegio':
+            # Resumen del Colegio: extraer todos los planes de la tabla
+            planes_lista = parse_json(ask_claude(
+                pdf_to_content(pb, 'RESUMEN COLEGIO IOMA') + [{"type":"text","text":"Extraé cada fila de la tabla de planes. Para cada plan: importe100=Imp.Total, ac_instituto=Imp.Os. Respondé: {\"planes\":[{\"plan\":\"nombre del convenio/plan\",\"recetas\":0,\"importe100\":0.0,\"ac_instituto\":0.0}]}"}],
+                SYSTEM_JSON))
+            for p in planes_lista.get('planes', []):
+                plan_name = p.get('plan','').upper()
+                entry = {'recetas':p['recetas'],'importe100':p['importe100'],'ac_instituto':p['ac_instituto']}
+                if 'MAMI' in plan_name: planes_data['MAMI'] = entry
+                elif 'MAYOR' in plan_name: planes_data['MAYOR COBERTURA'] = entry
+                elif 'AMPARO' in plan_name: planes_data['RECURSOS DE AMPARO'] = entry
+                elif 'DIRECTORIO' in plan_name: planes_data['RESOLUCIÓN DE DIRECTORIO'] = entry
+                elif 'VACUNA' in plan_name: planes_data['VACUNAS'] = entry
+        else:
+            # Carátula individual de un solo plan
+            pd_data = parse_json(ask_claude(
+                pdf_to_content(pb, 'CARÁTULA PLAN IOMA') + [{"type":"text","text":"Leer Convenio/Plan para identificar el plan. Extraé: {\"plan\":\"nombre del plan\",\"recetas\":0,\"importe100\":0.0,\"ac_instituto\":0.0}"}],
+                SYSTEM_JSON))
+            plan_name = pd_data.get('plan','').upper()
+            entry = {'recetas':pd_data['recetas'],'importe100':pd_data['importe100'],'ac_instituto':pd_data['ac_instituto']}
+            if 'MAMI' in plan_name: planes_data['MAMI'] = entry
+            elif 'MAYOR' in plan_name: planes_data['MAYOR COBERTURA'] = entry
+            elif 'AMPARO' in plan_name: planes_data['RECURSOS DE AMPARO'] = entry
+            elif 'DIRECTORIO' in plan_name: planes_data['RESOLUCIÓN DE DIRECTORIO'] = entry
+            elif 'VACUNA' in plan_name: planes_data['VACUNAS'] = entry
 
     opf_data = parse_json(ask_claude(
         pdf_to_content(opf_bytes, 'OPF IOMA') + [{"type":"text","text":"Efvo.IOMA AMBULATORIO = anticipo. Sección RETENCIONES línea RGI = ing_brutos_anticipo. Extraé: {\"efvo_ioma\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":0,\"ing_brutos_anticipo\":0.0}"}],
