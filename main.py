@@ -669,7 +669,7 @@ async def reporte_osde(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE OSDE') + [{"type":"text","text":"Si hay 2 líneas Ajuste Facturación (1 débito + 1 crédito): ajuste_facturacion = primer valor - segundo valor. Extraé: {\"nro_liquidacion\":0,\"ajuste_facturacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"notas_credito\":0.0,\"neto_cobrar\":0.0}"}],
+        pdf_to_content(pre_bytes, 'PRE OSDE') + [{"type":"text","text":"La tabla tiene columnas: Concepto, Base Cálculo, Créditos, Débitos. IMPORTANTE: para retencion_fdo_res, ret_col_art12 y notas_credito tomá SIEMPRE el valor de la columna Débitos, NO la Base de Cálculo. Si hay 2 líneas Ajuste Facturación (1 débito + 1 crédito): ajuste_facturacion = primer valor - segundo valor. neto_cobrar = fila Neto a Cobrar columna Créditos. Extraé: {\"nro_liquidacion\":0,\"ajuste_facturacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"notas_credito\":0.0,\"neto_cobrar\":0.0}"}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
