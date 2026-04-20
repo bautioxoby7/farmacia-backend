@@ -673,7 +673,7 @@ async def reporte_osde(
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
-        pdf_to_content(pago_bytes, 'PAGO FINAL OSDE') + [{"type":"text","text":f"Buscar línea OSDE con liquidación nro {pre_data.get('nro_liquidacion','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0}}"}],
+        pdf_to_content(pago_bytes, 'PAGO FINAL OSDE') + [{"type":"text","text":f"La fecha_pago es la fecha del ENCABEZADO del documento (campo Fecha:), NO la fecha de presentación de la tabla. El nro_comprobante_pago es el número de Orden de Pago del encabezado. Confirmar que existe línea OSDE con liquidación nro {pre_data.get('nro_liquidacion','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0}}"}],
         SYSTEM_JSON))
 
     nr_data = parse_json(ask_claude(
