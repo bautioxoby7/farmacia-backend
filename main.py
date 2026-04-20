@@ -488,7 +488,7 @@ def build_osde_excel(data, mes, anio):
     c(ws,'E16','Colegio Art. 12 SU:'); n(ws,'F16',pre['ret_col_art12'])
     c(ws,'E17','TOTAL',bold=True); n(ws,'F17',total_ret)
     ws.merge_cells('E18:F18'); c(ws,'E18','AJUSTE FACTURACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'E19','Total:'); n(ws,'F19',pre['ajuste_facturacion'])
+    c(ws,'E19','Débito:'); n(ws,'F19',pre['ajuste_facturacion'])
     box(ws,11,5,19,6)
 
     ws.merge_cells('H12:L12'); c(ws,'H12','NOTAS DE CRÉDITO',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
@@ -669,7 +669,7 @@ async def reporte_osde(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE OSDE') + [{"type":"text","text":"La tabla tiene columnas: Concepto, Base Cálculo, Créditos, Débitos. IMPORTANTE: para retencion_fdo_res, ret_col_art12 y notas_credito tomá SIEMPRE el valor de la columna Débitos, NO la Base de Cálculo. Si hay 2 líneas Ajuste Facturación (1 débito + 1 crédito): ajuste_facturacion = primer valor - segundo valor. neto_cobrar = fila Neto a Cobrar columna Créditos. Extraé: {\"nro_liquidacion\":0,\"ajuste_facturacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"notas_credito\":0.0,\"neto_cobrar\":0.0}"}],
+        pdf_to_content(pre_bytes, 'PRE OSDE') + [{"type":"text","text":"La tabla tiene columnas: Concepto, Base Cálculo, Créditos, Débitos. REGLAS: 1) Para retencion_fdo_res, ret_col_art12 y notas_credito tomá SIEMPRE el valor de la columna Débitos, NO la Base de Cálculo. 2) Para ajuste_facturacion: puede haber varias líneas de Ajuste Facturación. Identificá pares que se cancelan entre sí (mismo monto, uno en Débitos y otro en Créditos) y excluílos. El ajuste_facturacion es el monto de la línea que NO tiene contraparte que la cancele (si es débito es positivo, si es crédito es negativo). Si no hay ajuste real, ajuste_facturacion=0. 3) neto_cobrar = fila Neto a Cobrar columna Créditos. Extraé: {\"nro_liquidacion\":0,\"ajuste_facturacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"notas_credito\":0.0,\"neto_cobrar\":0.0}"}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
