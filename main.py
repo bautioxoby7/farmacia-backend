@@ -940,6 +940,11 @@ def build_osprera_excel(data, mes, anio):
         cell=ws2.cell(2,i+1); cell.value=v
         cell.number_format='0.00%' if isinstance(v,float) and abs(v)<10 else '#,##0.00'
     tbl1=Table(displayName='tbl_osprera',ref='A1:M2'); tbl1.tableStyleInfo=style; ws2.add_table(tbl1)
+
+    if con_quincena:
+        ws2.cell(4,1,'Diferencias NR'); cell=ws2.cell(5,1); cell.value=dif_nr; cell.number_format='#,##0.00'
+        tbl2=Table(displayName='tbl_osprera_dif',ref='A4:A5'); tbl2.tableStyleInfo=style; ws2.add_table(tbl2)
+
     for col in 'ABCDEFGHIJKLM': ws2.column_dimensions[col].width=20
 
     buf=io.BytesIO(); wb.save(buf); buf.seek(0)
