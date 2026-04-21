@@ -955,7 +955,6 @@ async def reporte_osprera(
     pre: UploadFile = File(...),
     pago: UploadFile = File(...),
     quincena: str = Form(default=None),
-    opf: UploadFile = File(default=None),
     nr: UploadFile = File(default=None)
 ):
     pre_bytes = await pre.read()
@@ -987,13 +986,6 @@ async def reporte_osprera(
         planes_data[key]['importe100'] += car_data.get('importe_total',0.0)
         planes_data[key]['ac_os'] += car_data.get('ac_os',0.0)
 
-    opf_data = None
-    if con_quincena and opf:
-        opf_bytes = await opf.read()
-        opf_data = parse_json(ask_claude(
-            pdf_to_content(opf_bytes, 'OPF OSPRERA') + [{"type":"text","text":"Buscar línea OSPRERA. La fecha_opf es la Fecha del encabezado. El nro_comprobante_opf es el Comprobante del encabezado. Extraé: {\"efvo_osprera\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":\"\"}"}],
-            SYSTEM_JSON))
-
     nr_data = None
     if con_quincena and nr:
         nr_bytes = await nr.read()
@@ -1012,7 +1004,7 @@ async def reporte_osprera(
 
     buf = build_osprera_excel(
         {'planes': planes_data, 'pre': pre_data, 'pago': pago_data,
-         'fecha_cierre': fecha_cierre_osprera, 'opf': opf_data, 'nr': nr_data,
+         'fecha_cierre': fecha_cierre_osprera, 'opf': None, 'nr': nr_data,
          'con_quincena': con_quincena, 'quincena': quincena},
         mes, anio[-2:]
     )
