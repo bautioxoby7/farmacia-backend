@@ -973,7 +973,7 @@ async def reporte_osprera(
     for car_file in caratulas:
         cb = await car_file.read()
         car_data = parse_json(ask_claude(
-            pdf_to_content(cb, 'CARÁTULA OSPRERA') + [{"type":"text","text":"Identificar el plan exacto leyendo el campo Convenio/Plan. Extraé: {\"plan\":\"nombre completo del convenio/plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+            pdf_to_content(cb, 'CARÁTULA OSPRERA') + [{"type":"text","text":"Identificar el plan exacto leyendo el campo Convenio/Plan. La fecha_cierre es la \"Fecha de generación\", NO la \"Fecha de Proceso\". Extraé: {\"plan\":\"nombre completo del convenio/plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
             SYSTEM_JSON))
         if not fecha_cierre_osprera: fecha_cierre_osprera = car_data.get('fecha_cierre')
         plan_name = car_data.get('plan','').upper()
