@@ -696,6 +696,7 @@ def build_ospecon_excel(data, mes, anio):
     dias_pago=days_diff(fecha_pres,parse_date(pago['fecha_pago']))
     total_ret=abs(pre['retencion_fdo_res'])+abs(pre['ret_col_art12'])
     afiliado=car['importe_total']-car['ac_os']
+    ajuste=pre.get('ajuste_facturacion',0)
     periodo=f'{mes}/{anio}'
 
     wb=Workbook(); ws=wb.active; ws.title='Reporte'
@@ -739,7 +740,9 @@ def build_ospecon_excel(data, mes, anio):
     c(ws,'E15','Fdo. Res.:'); n(ws,'F15',abs(pre['retencion_fdo_res']))
     c(ws,'E16','Colegio Art. 12 SU:'); n(ws,'F16',abs(pre['ret_col_art12']))
     c(ws,'E17','TOTAL',bold=True); n(ws,'F17',total_ret)
-    box(ws,11,5,17,6)
+    ws.merge_cells('E18:F18'); c(ws,'E18','AJUSTE FACTURACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E19','Débito:'); n(ws,'F19',ajuste)
+    box(ws,11,5,19,6)
 
     ws2=wb.create_sheet('Resumen'); ws2.sheet_view.showGridLines=False
     style=TableStyleInfo(name='TableStyleMedium2',showFirstColumn=False,showLastColumn=False,showRowStripes=True,showColumnStripes=False)
@@ -774,7 +777,7 @@ async def reporte_ospecon(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE OSPECON') + [{"type":"text","text":"Columnas: Concepto, Base Cálculo, Créditos, Débitos. Para bonificacion, retencion_fdo_res y ret_col_art12 tomá SIEMPRE la columna Débitos. neto_cobrar = fila Neto a Cobrar columna Créditos. Extraé: {\"nro_liquidacion\":0,\"bonificacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"neto_cobrar\":0.0}"}],
+        pdf_to_content(pre_bytes, 'PRE OSPECON') + [{"type":"text","text":"Columnas: Concepto, Base Cálculo, Créditos, Débitos. Para bonificacion, retencion_fdo_res y ret_col_art12 tomá SIEMPRE la columna Débitos. Para ajuste_facturacion: puede haber varias líneas de Ajuste Facturación, identificá pares que se cancelan entre sí (mismo monto, uno Débitos y otro Créditos) y excluílos, el ajuste_facturacion es el monto de la línea que NO tiene contraparte (positivo si débito, negativo si crédito), 0 si no hay. neto_cobrar = fila Neto a Cobrar columna Créditos. Extraé: {\"nro_liquidacion\":0,\"ajuste_facturacion\":0.0,\"bonificacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"neto_cobrar\":0.0}"}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
@@ -805,6 +808,7 @@ def build_osprera_excel(data, mes, anio):
     cred_os = pre['deb_cred_os'] if pre['deb_cred_os'] > 0 else 0
     bonificaciones = abs(pre['bonificaciones'])
     ret_cofa = abs(pre['fdo_prest_colfarma']) + abs(pre['retencion_colegio_art12'])
+    ajuste = pre.get('ajuste_facturacion', 0)
     total_pagado = pre['total_liquidacion']
     periodo = f'{mes}/{anio}'
     planes_activos = {k: v for k, v in planes.items() if v.get('recetas', 0) > 0}
@@ -854,7 +858,9 @@ def build_osprera_excel(data, mes, anio):
     ws.merge_cells('E18:F18'); c(ws,'E18','DÉB. / CRÉD. OS',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'E19','Débito OS:'); n(ws,'F19',deb_os)
     c(ws,'E20','Crédito OS:'); n(ws,'F20',cred_os)
-    box(ws,11,5,20,6)
+    ws.merge_cells('E21:F21'); c(ws,'E21','AJUSTE FACTURACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E22','Débito:'); n(ws,'F22',ajuste)
+    box(ws,11,5,22,6)
 
     ws.merge_cells('H12:L12'); c(ws,'H12','LIQUIDACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'H13','TOTAL LIQUIDACIÓN',bold=True); n(ws,'I13',pre['total_liquidacion'])
@@ -910,7 +916,7 @@ async def reporte_osprera(
         planes_data[key]['ac_os'] += car_data.get('ac_os',0.0)
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE OSPRERA') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). bonificaciones = BONIFICACIONES. fdo_prest_colfarma = FDO PREST COLFARMA. total_liquidacion = Total liquidación."}],
+        pdf_to_content(pre_bytes, 'PRE OSPRERA') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"ajuste_facturacion\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). Para ajuste_facturacion: identificá pares que se cancelan (mismo monto, uno Débitos y otro Créditos) y excluílos, el valor es el monto de la línea sin contraparte (positivo si débito, negativo si crédito), 0 si no hay. bonificaciones = BONIFICACIONES. fdo_prest_colfarma = FDO PREST COLFARMA. total_liquidacion = Total liquidación."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
@@ -940,6 +946,7 @@ def build_unionpersonal_excel(data, mes, anio):
 
     bonificaciones = abs(pre['bonificaciones'])
     ret_cofa = abs(pre['fdo_prest_colfarma']) + abs(pre['retencion_colegio_art12'])
+    ajuste = pre.get('ajuste_facturacion', 0)
     liq_final = pre['total_liquidacion'] - opf['efvo_up']
     total_pagado = opf['efvo_up'] + liq_final
     dias_prom = (opf['efvo_up']*dias_ant + liq_final*dias_liq) / total_pagado if total_pagado else 0
@@ -989,7 +996,9 @@ def build_unionpersonal_excel(data, mes, anio):
     c(ws,'E15','Fdo Prest. COLFARMA:'); n(ws,'F15',abs(pre['fdo_prest_colfarma']))
     c(ws,'E16','Colegio Art. 12 SU:'); n(ws,'F16',abs(pre['retencion_colegio_art12']))
     c(ws,'E17','TOTAL',bold=True); n(ws,'F17',ret_cofa)
-    box(ws,11,5,17,6)
+    ws.merge_cells('E18:F18'); c(ws,'E18','AJUSTE FACTURACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E19','Débito:'); n(ws,'F19',ajuste)
+    box(ws,11,5,19,6)
 
     ws.merge_cells('H12:L12'); c(ws,'H12','ANTICIPO (OPF)',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'H13','TOTAL',bold=True); n(ws,'I13',opf['efvo_up'])
@@ -1061,7 +1070,7 @@ async def reporte_unionpersonal(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
+        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"ajuste_facturacion\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. Para ajuste_facturacion: identificá pares que se cancelan (mismo monto, uno Débitos y otro Créditos) y excluílos, el valor es el monto de la línea sin contraparte (positivo si débito, negativo si crédito), 0 si no hay. bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
