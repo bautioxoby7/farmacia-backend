@@ -800,8 +800,23 @@ async def reporte_ospecon(
 
 def build_osprera_excel(data, mes, anio):
     planes = data['planes']; pre = data['pre']; pago = data['pago']
+    opf = data.get('opf'); nr_data = data.get('nr')
+    con_quincena = data.get('con_quincena', False)
+    quincena = data.get('quincena', '')
     fecha_pres = parse_date(data.get('fecha_cierre') or pre['fecha_presentacion'])
     dias_pago = days_diff(fecha_pres, parse_date(pago['fecha_pago']))
+
+    # Con quincena: puede haber OPF y NR
+    dias_ant = 0; total_nr = 0; dias_nr_pond = 0
+    if con_quincena and opf:
+        dias_ant = days_diff(fecha_pres, parse_date(opf['fecha_opf']))
+    if con_quincena and nr_data:
+        nr_por_fecha = nr_data.get('nr_por_fecha', [])
+        total_pond = 0
+        for item in nr_por_fecha:
+            m = item.get('monto', 0); total_nr += m
+            total_pond += m * days_diff(fecha_pres, parse_date(item.get('fecha', '')))
+        dias_nr_pond = total_pond / total_nr if total_nr else 0
 
     total_recetas = sum(p.get('recetas', 0) for p in planes.values())
     total_importe100 = sum(p.get('importe100', 0) for p in planes.values())
@@ -813,8 +828,18 @@ def build_osprera_excel(data, mes, anio):
     bonificaciones = abs(pre['bonificaciones'])
     ret_cofa = abs(pre['fdo_prest_colfarma']) + abs(pre['retencion_colegio_art12'])
     ajuste = pre.get('ajuste_facturacion', 0)
-    total_pagado = pre['total_liquidacion']
-    periodo = f'{mes}/{anio}'
+    efvo_opf = opf['efvo_osprera'] if (con_quincena and opf) else 0
+    liq_final = pre['total_liquidacion'] - efvo_opf
+    total_pagado = efvo_opf + liq_final + total_nr
+    if total_pagado == 0: total_pagado = pre['total_liquidacion']
+    # dias prom ponderado si hay OPF o NR
+    if con_quincena and (efvo_opf or total_nr):
+        componentes = [(efvo_opf, dias_ant), (liq_final, dias_pago), (total_nr, dias_nr_pond)]
+        total_pond2 = sum(v*d for v,d in componentes)
+        dias_prom = total_pond2 / total_pagado if total_pagado else dias_pago
+    else:
+        dias_prom = dias_pago
+    periodo = f'{mes}/{anio}' + (f' {quincena}' if con_quincena and quincena else '')
     planes_activos = {k: v for k, v in planes.items() if v.get('recetas', 0) > 0}
 
     wb = Workbook(); ws = wb.active; ws.title = 'Reporte'
@@ -827,7 +852,7 @@ def build_osprera_excel(data, mes, anio):
     c(ws,'I2','FECHA DE PRESENTACION',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
     c(ws,'I3',fecha_pres.strftime('%d/%m/%Y'),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center')
     c(ws,'K2','DÍAS PROM.',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
-    c(ws,'K3',dias_pago,bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0')
+    c(ws,'K3',round(dias_prom,1),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0.0')
 
     for coord,label,val,clr in [('B5:C5','IMPORTE 100%',total_importe100,MID_BLUE),('E5:F5','A/C OSPRERA',total_ac,MID_BLUE),('H5:I5','AFILIADO',afiliado,MID_BLUE),('K5:L5','TOTAL PAGADO OSPRERA',total_pagado,GREEN)]:
         ws.merge_cells(coord); start=coord.split(':')[0]; end=coord.split(':')[1]
@@ -836,10 +861,22 @@ def build_osprera_excel(data, mes, anio):
         coord6=f'{c_letter}{r+1}:{end_letter}{r+1}'; ws.merge_cells(coord6)
         ni(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
 
-    c(ws,'B8','LIQ. FINAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    c(ws,'C8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    n(ws,'B9',total_pagado); ws['B9'].font=Font(bold=True,size=13,color=WHITE); ws['B9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B9'].alignment=Alignment(horizontal='center',vertical='center')
-    c(ws,'C9',dias_pago,bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
+    if con_quincena and efvo_opf:
+        for col,col_dias,lbl,dias,val in [('B','C','ANTICIPO',dias_ant,efvo_opf),('E','F','LIQ. FINAL',dias_pago,liq_final)]:
+            c(ws,f'{col}8',lbl,size=9,color=WHITE,fill=MID_BLUE,halign='center')
+            c(ws,f'{col_dias}8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+            ni(ws,f'{col}9',val); ws[f'{col}9'].font=Font(bold=True,size=13,color=WHITE); ws[f'{col}9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws[f'{col}9'].alignment=Alignment(horizontal='center',vertical='center')
+            c(ws,f'{col_dias}9',dias,bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
+        if total_nr:
+            c(ws,'H8','NOTAS RECUP.',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+            c(ws,'I8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+            ni(ws,'H9',total_nr); ws['H9'].font=Font(bold=True,size=13,color=WHITE); ws['H9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['H9'].alignment=Alignment(horizontal='center',vertical='center')
+            c(ws,'I9',round(dias_nr_pond,1),bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
+    else:
+        c(ws,'B8','LIQ. FINAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+        c(ws,'C8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+        ni(ws,'B9',total_pagado); ws['B9'].font=Font(bold=True,size=13,color=WHITE); ws['B9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B9'].alignment=Alignment(horizontal='center',vertical='center')
+        c(ws,'C9',dias_pago,bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
 
     ws.merge_cells('B11:C11'); c(ws,'B11','CARÁTULAS',bold=True,size=11,halign='center')
     ws.merge_cells('E11:F11'); c(ws,'E11','DESCUENTOS',bold=True,size=11,halign='center')
@@ -866,11 +903,32 @@ def build_osprera_excel(data, mes, anio):
     c(ws,'E22','Débito:'); n(ws,'F22',ajuste)
     box(ws,11,5,22,6)
 
-    ws.merge_cells('H12:L12'); c(ws,'H12','LIQUIDACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'H13','TOTAL LIQUIDACIÓN',bold=True); n(ws,'I13',pre['total_liquidacion'])
-    c(ws,'H14','Fecha pago'); d(ws,'I14',parse_date(pago['fecha_pago']))
-    c(ws,'H15','Comprobante'); ws['I15'].value=pago['nro_comprobante_pago']; ws['I15'].alignment=Alignment(horizontal='right',vertical='center'); ws['I15'].font=Font(size=10)
-    box(ws,11,8,15,12)
+    if con_quincena and opf:
+        ws.merge_cells('H12:L12'); c(ws,'H12','ANTICIPO (OPF)',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+        c(ws,'H13','TOTAL',bold=True); n(ws,'I13',efvo_opf)
+        c(ws,'H14','Fecha pago'); d(ws,'I14',parse_date(opf['fecha_opf']))
+        c(ws,'H15','Comprobante'); ws['I15'].value=opf['nro_comprobante_opf']; ws['I15'].alignment=Alignment(horizontal='right',vertical='center'); ws['I15'].font=Font(size=10)
+        ws.merge_cells('H16:L16'); c(ws,'H16','LIQUIDACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+        c(ws,'H17','Bruto a pagar antes imp.:'); n(ws,'I17',pre['total_liquidacion'])
+        c(ws,'H18','TOTAL',bold=True); n(ws,'I18',liq_final)
+        c(ws,'H19','Fecha pago'); d(ws,'I19',parse_date(pago['fecha_pago']))
+        c(ws,'H20','Comprobante'); ws['I20'].value=pago['nro_comprobante_pago']; ws['I20'].alignment=Alignment(horizontal='right',vertical='center'); ws['I20'].font=Font(size=10)
+        box_end = 20
+        if total_nr and nr_data:
+            nr_por_fecha = nr_data.get('nr_por_fecha', [])
+            ws.merge_cells(f'H{box_end+1}:L{box_end+1}'); c(ws,f'H{box_end+1}','NOTAS DE RECUPERO',bold=True,size=10,fill=LIGHT_BLUE,halign='center'); box_end+=1
+            c(ws,f'H{box_end+1}','Fecha',bold=True,halign='center'); c(ws,f'I{box_end+1}','Monto',bold=True,halign='center'); c(ws,f'K{box_end+1}','Días',bold=True,halign='center'); box_end+=1
+            for item in sorted(nr_por_fecha, key=lambda x: x.get('fecha','')):
+                df=days_diff(fecha_pres,parse_date(item.get('fecha',''))); d(ws,f'H{box_end+1}',parse_date(item.get('fecha',''))); n(ws,f'I{box_end+1}',item.get('monto',0))
+                ws[f'K{box_end+1}'].value=df; ws[f'K{box_end+1}'].alignment=Alignment(horizontal='right',vertical='center'); ws[f'K{box_end+1}'].font=Font(size=10); box_end+=1
+            c(ws,f'H{box_end+1}','DÍAS PROM.',bold=True); ws[f'K{box_end+1}'].value=round(dias_nr_pond,1); ws[f'K{box_end+1}'].alignment=Alignment(horizontal='right',vertical='center'); ws[f'K{box_end+1}'].font=Font(bold=True,size=10); box_end+=1
+        box(ws,11,8,box_end,12)
+    else:
+        ws.merge_cells('H12:L12'); c(ws,'H12','LIQUIDACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+        c(ws,'H13','TOTAL LIQUIDACIÓN',bold=True); n(ws,'I13',pre['total_liquidacion'])
+        c(ws,'H14','Fecha pago'); d(ws,'I14',parse_date(pago['fecha_pago']))
+        c(ws,'H15','Comprobante'); ws['I15'].value=pago['nro_comprobante_pago']; ws['I15'].alignment=Alignment(horizontal='right',vertical='center'); ws['I15'].font=Font(size=10)
+        box(ws,11,8,15,12)
 
     ws2=wb.create_sheet('Resumen'); ws2.sheet_view.showGridLines=False
     style=TableStyleInfo(name='TableStyleMedium2',showFirstColumn=False,showLastColumn=False,showRowStripes=True,showColumnStripes=False)
@@ -895,14 +953,20 @@ async def reporte_osprera(
     anio: str = Form(...), mes: str = Form(...),
     caratulas: list[UploadFile] = File(...),
     pre: UploadFile = File(...),
-    pago: UploadFile = File(...)
+    pago: UploadFile = File(...),
+    quincena: str = Form(default=None),
+    opf: UploadFile = File(default=None),
+    nr: UploadFile = File(default=None)
 ):
     pre_bytes = await pre.read()
     pago_bytes = await pago.read()
+    con_quincena = quincena is not None
 
     planes_data = {
         'GENERAL': {'recetas':0,'importe100':0.0,'ac_os':0.0},
         'TRATAMIENTO PROLONGADO': {'recetas':0,'importe100':0.0,'ac_os':0.0},
+        'MONOTRIBUTISTAS': {'recetas':0,'importe100':0.0,'ac_os':0.0},
+        'RURAL': {'recetas':0,'importe100':0.0,'ac_os':0.0},
         'DECLARACIÓN DE DISPENSA': {'recetas':0,'importe100':0.0,'ac_os':0.0},
     }
 
@@ -910,30 +974,50 @@ async def reporte_osprera(
     for car_file in caratulas:
         cb = await car_file.read()
         car_data = parse_json(ask_claude(
-            pdf_to_content(cb, 'CARÁTULA OSPRERA') + [{"type":"text","text":"Identificar el plan: General, Tratamiento Prolongado o Declaración de Dispensa. Extraé: {\"plan\":\"nombre del plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+            pdf_to_content(cb, 'CARÁTULA OSPRERA') + [{"type":"text","text":"Identificar el plan exacto leyendo el campo Convenio/Plan. Extraé: {\"plan\":\"nombre completo del convenio/plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
             SYSTEM_JSON))
         if not fecha_cierre_osprera: fecha_cierre_osprera = car_data.get('fecha_cierre')
         plan_name = car_data.get('plan','').upper()
-        if 'PROLONGADO' in plan_name: key='TRATAMIENTO PROLONGADO'
+        if 'MONOT' in plan_name: key='MONOTRIBUTISTAS'
+        elif 'RURAL' in plan_name: key='RURAL'
+        elif 'PROLONGADO' in plan_name: key='TRATAMIENTO PROLONGADO'
         elif 'DISPENSA' in plan_name: key='DECLARACIÓN DE DISPENSA'
         else: key='GENERAL'
         planes_data[key]['recetas'] += car_data.get('nro_recetas',0)
         planes_data[key]['importe100'] += car_data.get('importe_total',0.0)
         planes_data[key]['ac_os'] += car_data.get('ac_os',0.0)
 
+    opf_data = None
+    if con_quincena and opf:
+        opf_bytes = await opf.read()
+        opf_data = parse_json(ask_claude(
+            pdf_to_content(opf_bytes, 'OPF OSPRERA') + [{"type":"text","text":"Buscar línea OSPRERA. La fecha_opf es la Fecha del encabezado. El nro_comprobante_opf es el Comprobante del encabezado. Extraé: {\"efvo_osprera\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":\"\"}"}],
+            SYSTEM_JSON))
+
+    nr_data = None
+    if con_quincena and nr:
+        nr_bytes = await nr.read()
+        nr_text = xls_to_text(nr_bytes, nr.filename)
+        nr_data = parse_json(ask_claude(
+            [{"type":"text","text":f"NOTAS DE RECUPERO OSPRERA:\n{nr_text}\n\nSumá NRF y NRFD agrupados por fecha. Extraé: {{\"nr_por_fecha\":[{{\"fecha\":\"DD/MM/YYYY\",\"monto\":0.0}}]}}"}],
+            SYSTEM_JSON))
+
     pre_data = parse_json(ask_claude(
         pdf_to_content(pre_bytes, 'PRE OSPRERA') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). bonificaciones = BONIFICACIONES. fdo_prest_colfarma = FDO PREST COLFARMA. total_liquidacion = Total liquidación."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
-        pdf_to_content(pago_bytes, 'PAGO FINAL OSPRERA') + [{"type":"text","text":f"La fecha_pago es la Fecha del encabezado del documento. El nro_comprobante_pago es el número de Comprobante del encabezado. Confirmar que existe línea OSPRERA AMBULATORIO General con comprobante {pre_data.get('nro_comprobante','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":\"\"}}"}],
+        pdf_to_content(pago_bytes, 'PAGO FINAL OSPRERA') + [{"type":"text","text":f"La fecha_pago es la Fecha del encabezado del documento. El nro_comprobante_pago es el número de Comprobante del encabezado. Confirmar que existe línea OSPRERA con comprobante {pre_data.get('nro_comprobante','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":\"\"}}"}],
         SYSTEM_JSON))
 
     buf = build_osprera_excel(
-        {'planes': planes_data, 'pre': pre_data, 'pago': pago_data, 'fecha_cierre': fecha_cierre_osprera},
+        {'planes': planes_data, 'pre': pre_data, 'pago': pago_data,
+         'fecha_cierre': fecha_cierre_osprera, 'opf': opf_data, 'nr': nr_data,
+         'con_quincena': con_quincena, 'quincena': quincena},
         mes, anio[-2:]
     )
-    filename = f"{anio[-2:]}.{mes} - Reporte OSPRERA.xlsx"
+    q_str = f".{quincena}" if con_quincena else ""
+    filename = f"{anio[-2:]}.{mes}{q_str} - Reporte OSPRERA.xlsx"
     return StreamingResponse(buf, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                              headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
