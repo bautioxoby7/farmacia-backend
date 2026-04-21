@@ -1025,6 +1025,8 @@ def build_unionpersonal_excel(data, mes, anio):
 
     bonificaciones = abs(pre['bonificaciones'])
     ret_cofa = abs(pre['fdo_prest_colfarma']) + abs(pre['retencion_colegio_art12'])
+    deb_os = abs(pre.get('deb_cred_os', 0)) if pre.get('deb_cred_os', 0) < 0 else 0
+    cred_os = pre.get('deb_cred_os', 0) if pre.get('deb_cred_os', 0) > 0 else 0
     liq_final = pre['total_liquidacion'] - opf['efvo_up']
     total_pagado = opf['efvo_up'] + liq_final
     dias_prom = (opf['efvo_up']*dias_ant + liq_final*dias_liq) / total_pagado if total_pagado else 0
@@ -1074,7 +1076,10 @@ def build_unionpersonal_excel(data, mes, anio):
     c(ws,'E15','Fdo Prest. COLFARMA:'); n(ws,'F15',abs(pre['fdo_prest_colfarma']))
     c(ws,'E16','Colegio Art. 12 SU:'); n(ws,'F16',abs(pre['retencion_colegio_art12']))
     c(ws,'E17','TOTAL',bold=True); n(ws,'F17',ret_cofa)
-    box(ws,11,5,17,6)
+    ws.merge_cells('E18:F18'); c(ws,'E18','DÉB. / CRÉD. OS',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E19','Débito OS:'); n(ws,'F19',deb_os)
+    c(ws,'E20','Crédito OS:'); n(ws,'F20',cred_os)
+    box(ws,11,5,20,6)
 
     ws.merge_cells('H12:L12'); c(ws,'H12','ANTICIPO (OPF)',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'H13','TOTAL',bold=True); n(ws,'I13',opf['efvo_up'])
@@ -1148,7 +1153,7 @@ async def reporte_unionpersonal(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
+        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito, 0 si no aparece). bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
