@@ -588,7 +588,7 @@ async def reporte_ioma(
     nr_bytes = await nr.read()
 
     agudo_data = parse_json(ask_claude(
-        pdf_to_content(agudo_bytes, 'AGUDO/CRÓNICO IOMA') + [{"type":"text","text":"Buscar RX ON LINE/TOTALIDAD DE LAS RECETAS. Extraé: {\"fecha_cierre\":\"DD/MM/YYYY\",\"recetas\":0,\"importe100\":0.0,\"ac_instituto\":0.0}"}],
+        pdf_to_content(agudo_bytes, 'AGUDO/CRÓNICO IOMA') + [{"type":"text","text":"Buscar RX ON LINE/TOTALIDAD DE LAS RECETAS. Si es un Resumen de Facturación del Colegio, la fecha_cierre es la \"Fecha de Proceso\". Si es una Carátula On-Line, la fecha_cierre es la \"Fecha de generación\". Extraé: {\"fecha_cierre\":\"DD/MM/YYYY\",\"recetas\":0,\"importe100\":0.0,\"ac_instituto\":0.0}"}],
         SYSTEM_JSON))
 
     planes_data = {
@@ -777,7 +777,7 @@ async def reporte_ospecon(
     pago_bytes = await pago.read()
 
     car_data = parse_json(ask_claude(
-        pdf_to_content(car_bytes, 'CARÁTULA OSPECON') + [{"type":"text","text":"Extraé: {\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+        pdf_to_content(car_bytes, 'CARÁTULA OSPECON') + [{"type":"text","text":"La fecha_cierre es la \"Fecha de generación\", NO la \"Fecha de Proceso\". Extraé: {\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
@@ -1134,7 +1134,7 @@ async def reporte_unionpersonal(
     for car_file in caratulas:
         cb = await car_file.read()
         car_data = parse_json(ask_claude(
-            pdf_to_content(cb, 'CARÁTULA UNIÓN PERSONAL') + [{"type":"text","text":"Identificar el plan: Planes Varios o Declaracion de dispensa. Extraé: {\"plan\":\"nombre del plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+            pdf_to_content(cb, 'CARÁTULA UNIÓN PERSONAL') + [{"type":"text","text":"Identificar el plan: Planes Varios o Declaracion de dispensa. La fecha_cierre es la \"Fecha de generación\", NO la \"Fecha de Proceso\". Extraé: {\"plan\":\"nombre del plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
             SYSTEM_JSON))
         if not fecha_cierre_up: fecha_cierre_up = car_data.get('fecha_cierre')
         plan_name = car_data.get('plan','').upper()
