@@ -827,7 +827,6 @@ def build_osprera_excel(data, mes, anio):
     cred_os = pre['deb_cred_os'] if pre['deb_cred_os'] > 0 else 0
     bonificaciones = abs(pre['bonificaciones'])
     ret_cofa = abs(pre['fdo_prest_colfarma']) + abs(pre['retencion_colegio_art12'])
-    ajuste = pre.get('ajuste_facturacion', 0)
     efvo_opf = opf['efvo_osprera'] if (con_quincena and opf) else 0
     liq_final = pre['total_liquidacion'] - efvo_opf
     total_pagado = efvo_opf + liq_final + total_nr
@@ -899,9 +898,7 @@ def build_osprera_excel(data, mes, anio):
     ws.merge_cells('E18:F18'); c(ws,'E18','DÉB. / CRÉD. OS',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'E19','Débito OS:'); n(ws,'F19',deb_os)
     c(ws,'E20','Crédito OS:'); n(ws,'F20',cred_os)
-    ws.merge_cells('E21:F21'); c(ws,'E21','AJUSTE FACTURACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'E22','Débito:'); n(ws,'F22',ajuste)
-    box(ws,11,5,22,6)
+    box(ws,11,5,20,6)
 
     if con_quincena and opf:
         ws.merge_cells('H12:L12'); c(ws,'H12','ANTICIPO (OPF)',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
@@ -1151,7 +1148,7 @@ async def reporte_unionpersonal(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
+        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
