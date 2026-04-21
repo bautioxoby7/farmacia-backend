@@ -1172,3 +1172,145 @@ async def reporte_unionpersonal(
     filename = f"{anio[-2:]}.{mes} - Reporte Union Personal.xlsx"
     return StreamingResponse(buf, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                              headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+# ── BATCH ─────────────────────────────────────────────────────────────────────
+
+import zipfile
+import tempfile
+
+def find_file(files, *keywords):
+    """Busca un archivo que contenga alguna de las keywords en el nombre (case insensitive)"""
+    for kw in keywords:
+        for f in files:
+            if kw.lower() in os.path.basename(f).lower():
+                return f
+    return None
+
+def find_files(files, *keywords):
+    """Busca todos los archivos que contengan alguna de las keywords"""
+    result = []
+    for kw in keywords:
+        for f in files:
+            if kw.lower() in os.path.basename(f).lower():
+                if f not in result:
+                    result.append(f)
+    return result
+
+def read_file(path):
+    with open(path, 'rb') as f:
+        return f.read()
+
+@app.post("/batch/pami")
+async def batch_pami(zip_file: UploadFile = File(...)):
+    zip_bytes = await zip_file.read()
+    output_zip = io.BytesIO()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Extraer ZIP
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            z.extractall(tmpdir)
+
+        reportes = []
+        errores = []
+
+        # Recorrer estructura: año/mes/quincena
+        for root, dirs, files in os.walk(tmpdir):
+            # Detectar si es carpeta de quincena (contiene 1Q o 2Q en el path)
+            rel = os.path.relpath(root, tmpdir)
+            parts = rel.replace('\\', '/').split('/')
+            
+            # Buscar nivel de quincena: tiene que tener archivos directamente
+            if not any('1Q' in p or '2Q' in p for p in parts):
+                continue
+            
+            all_files = [os.path.join(root, f) for f in os.listdir(root) if os.path.isfile(os.path.join(root, f))]
+            
+            # Buscar subcarpeta de liquidacion
+            liq_dir = None
+            for d in os.listdir(root):
+                full_d = os.path.join(root, d)
+                if os.path.isdir(full_d) and 'liquidac' in d.lower():
+                    liq_dir = full_d
+                    break
+            
+            if not liq_dir:
+                continue
+
+            liq_files = [os.path.join(liq_dir, f) for f in os.listdir(liq_dir)]
+            
+            caratula = find_file(all_files, 'caratula', 'carátula')
+            nr_file = find_file(all_files, 'notas', 'recupero', '.xls')
+            opf_file = find_file(liq_files, 'opf')
+            pre_file = find_file(liq_files, 'pre')
+            pago_file = find_file(liq_files, 'pago')
+
+            if not all([caratula, nr_file, opf_file, pre_file, pago_file]):
+                errores.append(f"Faltan archivos en: {rel}")
+                continue
+
+            try:
+                # Extraer quincena y mes/año del path
+                quincena = next((p for p in parts if '1Q' in p or '2Q' in p), None)
+                quincena_val = '1Q' if quincena and '1Q' in quincena else '2Q'
+                
+                # Buscar mes y año en el path
+                mes_part = next((p for p in parts if any(m in p for m in ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'])), None)
+                anio_part = next((p for p in parts if p.isdigit() and len(p) == 4), None)
+                
+                if not mes_part or not anio_part:
+                    errores.append(f"No se pudo determinar mes/año en: {rel}")
+                    continue
+
+                meses_map = {'Enero':'01','Febrero':'02','Marzo':'03','Abril':'04','Mayo':'05','Junio':'06','Julio':'07','Agosto':'08','Septiembre':'09','Octubre':'10','Noviembre':'11','Diciembre':'12'}
+                mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
+                anio = anio_part
+
+                car_bytes = read_file(caratula)
+                opf_bytes = read_file(opf_file)
+                pre_bytes = read_file(pre_file)
+                pago_bytes = read_file(pago_file)
+                nr_bytes = read_file(nr_file)
+                nr_filename = os.path.basename(nr_file)
+
+                periodo = f'{quincena_val} mes {mes_num} año {anio}'
+
+                car_data = parse_json(ask_claude(
+                    pdf_to_content(car_bytes, 'CARÁTULA PAMI') + [{"type":"text","text":f"Período: {periodo}. Extraé: {{\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"total_pvp\":0.0,\"total_pvp_pami\":0.0,\"diferencia_total\":0.0,\"importe_bruto_convenio\":0.0}}"}],
+                    SYSTEM_JSON))
+                opf_data = parse_json(ask_claude(
+                    pdf_to_content(opf_bytes, 'OPF PAMI') + [{"type":"text","text":f"Período: {periodo}. Buscar línea Efvo.PAMI. Extraé: {{\"efvo_pami\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":0}}"}],
+                    SYSTEM_JSON))
+                pre_data = parse_json(ask_claude(
+                    pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}"}],
+                    SYSTEM_JSON))
+                pago_data = parse_json(ask_claude(
+                    pdf_to_content(pago_bytes, 'PAGO FINAL PAMI') + [{"type":"text","text":"Buscar línea PAMI. Extraé: {\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0}"}],
+                    SYSTEM_JSON))
+                nr_text = xls_to_text(nr_bytes, nr_filename)
+                nr_data = parse_json(ask_claude(
+                    [{"type":"text","text":f"NOTAS DE RECUPERO PAMI:\n{nr_text}\n\nSumá ImporteCpte por TipoCte. Fecha de Impresion de primera CCF/NAF = fecha_nr. Fecha EfSa = fecha_efsa. Extraé: {{\"nr_ccf\":0.0,\"nr_ccfd\":0.0,\"nr_naf\":0.0,\"nr_nrfd\":0.0,\"nr_efsa\":0.0,\"fecha_nr\":\"DD/MM/YYYY\",\"fecha_efsa\":\"DD/MM/YYYY\"}}"}],
+                    SYSTEM_JSON))
+
+                buf = build_pami_excel(
+                    {'caratula': car_data, 'opf': opf_data, 'pre': pre_data, 'pago': pago_data, 'nr': nr_data},
+                    quincena_val, mes_num, anio[-2:]
+                )
+                filename = f"{anio[-2:]}.{mes_num}.{quincena_val} - Reporte.xlsx"
+                reportes.append((filename, buf.getvalue()))
+
+            except Exception as e:
+                errores.append(f"Error en {rel}: {str(e)}")
+
+        if not reportes:
+            raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
+
+        # Crear ZIP de salida
+        with zipfile.ZipFile(output_zip, 'w') as zout:
+            for filename, data in reportes:
+                zout.writestr(filename, data)
+            if errores:
+                zout.writestr("errores.txt", "\n".join(errores))
+
+    output_zip.seek(0)
+    return StreamingResponse(output_zip, media_type='application/zip',
+                             headers={'Content-Disposition': 'attachment; filename="Reportes_PAMI.zip"'})
