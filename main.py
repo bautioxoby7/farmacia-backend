@@ -687,3 +687,391 @@ async def reporte_osde(
     filename = f"{anio[-2:]}.{mes} - Reporte OSDE.xlsx"
     return StreamingResponse(buf, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                              headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+# ── OSPECON ───────────────────────────────────────────────────────────────────
+
+def build_ospecon_excel(data, mes, anio):
+    car=data['caratula']; pre=data['pre']; pago=data['pago']
+    fecha_pres=parse_date(car['fecha_cierre'])
+    dias_pago=days_diff(fecha_pres,parse_date(pago['fecha_pago']))
+    total_ret=abs(pre['retencion_fdo_res'])+abs(pre['ret_col_art12'])
+    afiliado=car['importe_total']-car['ac_os']
+    periodo=f'{mes}/{anio}'
+
+    wb=Workbook(); ws=wb.active; ws.title='Reporte'
+    setup_ws(ws); header_bg(ws)
+
+    ws.merge_cells('B2:C3'); c(ws,'B2','OSPECON',bold=True,size=22,color=WHITE,fill=DARK_BLUE,halign='center')
+    ws.merge_cells('E2:F3'); c(ws,'E2',periodo,bold=True,size=20,color=WHITE,fill=DARK_BLUE,halign='center')
+    c(ws,'H2','RECETAS',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'H3',car['nro_recetas'],bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0')
+    c(ws,'I2','FECHA DE PRESENTACION',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'I3',fecha_pres.strftime('%d/%m/%Y'),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center')
+    c(ws,'K2','DÍAS PROM.',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'K3',dias_pago,bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0')
+
+    ws.merge_cells('B5:C5'); c(ws,'B5','IMPORTE TOTAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+    ws.merge_cells('B6:C6'); n(ws,'B6',car['importe_total']); ws['B6'].font=Font(bold=True,size=13,color=WHITE); ws['B6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('E5:F5'); c(ws,'E5','A/C OSPECON',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+    ws.merge_cells('E6:F6'); n(ws,'E6',car['ac_os']); ws['E6'].font=Font(bold=True,size=13,color=WHITE); ws['E6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['E6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('H5:I5'); c(ws,'H5','AFILIADO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+    ws.merge_cells('H6:I6'); n(ws,'H6',afiliado); ws['H6'].font=Font(bold=True,size=13,color=WHITE); ws['H6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['H6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('K5:L5'); c(ws,'K5','TOTAL PAGADO OSPECON',size=9,color=WHITE,fill=GREEN,halign='center')
+    ws.merge_cells('K6:L6'); n(ws,'K6',pre['neto_cobrar']); ws['K6'].font=Font(bold=True,size=13,color=WHITE); ws['K6'].fill=PatternFill('solid',fgColor=GREEN); ws['K6'].alignment=Alignment(horizontal='center',vertical='center')
+
+    c(ws,'B8','LIQ. FINAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+    c(ws,'C8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+    n(ws,'B9',pre['neto_cobrar']); ws['B9'].font=Font(bold=True,size=13,color=WHITE); ws['B9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B9'].alignment=Alignment(horizontal='center',vertical='center')
+    c(ws,'C9',dias_pago,bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
+
+    ws.merge_cells('B11:C11'); c(ws,'B11','PAGOS A FARMACIA',bold=True,size=11,halign='center')
+    ws.merge_cells('E11:F11'); c(ws,'E11','DESCUENTOS',bold=True,size=11,halign='center')
+
+    ws.merge_cells('B12:C12'); c(ws,'B12','LIQUIDACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'B13','NETO A COBRAR',bold=True); n(ws,'C13',pre['neto_cobrar'])
+    c(ws,'B14','Fecha pago'); d(ws,'C14',parse_date(pago['fecha_pago']))
+    c(ws,'B15','Comprobante'); ws['C15'].value=pago['nro_comprobante_pago']; ws['C15'].alignment=Alignment(horizontal='right',vertical='center'); ws['C15'].font=Font(size=10)
+    box(ws,11,2,15,3)
+
+    ws.merge_cells('E12:F12'); c(ws,'E12','BONIFICACIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E13','Total:'); n(ws,'F13',abs(pre['bonificacion']))
+    ws.merge_cells('E14:F14'); c(ws,'E14','RETENCIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E15','Fdo. Res.:'); n(ws,'F15',abs(pre['retencion_fdo_res']))
+    c(ws,'E16','Colegio Art. 12 SU:'); n(ws,'F16',abs(pre['ret_col_art12']))
+    c(ws,'E17','TOTAL',bold=True); n(ws,'F17',total_ret)
+    box(ws,11,5,17,6)
+
+    ws2=wb.create_sheet('Resumen'); ws2.sheet_view.showGridLines=False
+    style=TableStyleInfo(name='TableStyleMedium2',showFirstColumn=False,showLastColumn=False,showRowStripes=True,showColumnStripes=False)
+    h1=['RECETAS','IMPORTE TOTAL','A/C OSPECON','AFILIADO','%AFL','TOTAL PAGADO','%PAGADO','DIAS PAGO','RETENCIONES','%RET','BONIFICACIONES','%BON']
+    for i,h in enumerate(h1): ws2.cell(1,i+1,h)
+    row2=[car['nro_recetas'],car['importe_total'],car['ac_os'],afiliado,
+          afiliado/car['importe_total'] if car['importe_total'] else 0,
+          pre['neto_cobrar'],pre['neto_cobrar']/car['ac_os'] if car['ac_os'] else 0,
+          dias_pago,total_ret,total_ret/car['ac_os'] if car['ac_os'] else 0,
+          abs(pre['bonificacion']),abs(pre['bonificacion'])/car['ac_os'] if car['ac_os'] else 0]
+    for i,v in enumerate(row2):
+        cell=ws2.cell(2,i+1); cell.value=v
+        cell.number_format='0.00%' if isinstance(v,float) and abs(v)<10 else '#,##0.00'
+    tbl1=Table(displayName='tbl_ospecon',ref='A1:L2'); tbl1.tableStyleInfo=style; ws2.add_table(tbl1)
+    for col in 'ABCDEFGHIJKL': ws2.column_dimensions[col].width=20
+
+    buf=io.BytesIO(); wb.save(buf); buf.seek(0)
+    return buf
+
+@app.post("/reporte/ospecon")
+async def reporte_ospecon(
+    anio: str = Form(...), mes: str = Form(...),
+    caratula: UploadFile = File(...), pre: UploadFile = File(...),
+    pago: UploadFile = File(...)
+):
+    car_bytes = await caratula.read()
+    pre_bytes = await pre.read()
+    pago_bytes = await pago.read()
+
+    car_data = parse_json(ask_claude(
+        pdf_to_content(car_bytes, 'CARÁTULA OSPECON') + [{"type":"text","text":"Extraé: {\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+        SYSTEM_JSON))
+
+    pre_data = parse_json(ask_claude(
+        pdf_to_content(pre_bytes, 'PRE OSPECON') + [{"type":"text","text":"Columnas: Concepto, Base Cálculo, Créditos, Débitos. Para bonificacion, retencion_fdo_res y ret_col_art12 tomá SIEMPRE la columna Débitos. neto_cobrar = fila Neto a Cobrar columna Créditos. Extraé: {\"nro_liquidacion\":0,\"bonificacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"neto_cobrar\":0.0}"}],
+        SYSTEM_JSON))
+
+    pago_data = parse_json(ask_claude(
+        pdf_to_content(pago_bytes, 'PAGO FINAL OSPECON') + [{"type":"text","text":f"La fecha_pago es la fecha del ENCABEZADO del documento (campo Fecha:). El nro_comprobante_pago es el número de Orden de Pago del encabezado. Confirmar línea OSPECON con liquidación nro {pre_data.get('nro_liquidacion','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0}}"}],
+        SYSTEM_JSON))
+
+    buf = build_ospecon_excel(
+        {'caratula': car_data, 'pre': pre_data, 'pago': pago_data},
+        mes, anio[-2:]
+    )
+    filename = f"{anio[-2:]}.{mes} - Reporte OSPECON.xlsx"
+    return StreamingResponse(buf, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                             headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+# ── OSPRERA ───────────────────────────────────────────────────────────────────
+
+def build_osprera_excel(data, mes, anio):
+    planes = data['planes']; pre = data['pre']; pago = data['pago']
+    fecha_pres = parse_date(pre['fecha_presentacion'])
+    dias_pago = days_diff(fecha_pres, parse_date(pago['fecha_pago']))
+
+    total_recetas = sum(p.get('recetas', 0) for p in planes.values())
+    total_importe100 = sum(p.get('importe100', 0) for p in planes.values())
+    total_ac = sum(p.get('ac_os', 0) for p in planes.values())
+    afiliado = total_importe100 - total_ac
+
+    deb_os = abs(pre['deb_cred_os']) if pre['deb_cred_os'] < 0 else 0
+    cred_os = pre['deb_cred_os'] if pre['deb_cred_os'] > 0 else 0
+    bonificaciones = abs(pre['bonificaciones'])
+    ret_cofa = abs(pre['fdo_prest_colfarma']) + abs(pre['retencion_colegio_art12'])
+    total_pagado = pre['total_liquidacion']
+    periodo = f'{mes}/{anio}'
+    planes_activos = {k: v for k, v in planes.items() if v.get('recetas', 0) > 0}
+
+    wb = Workbook(); ws = wb.active; ws.title = 'Reporte'
+    setup_ws(ws); header_bg(ws)
+
+    ws.merge_cells('B2:C3'); c(ws,'B2','OSPRERA',bold=True,size=22,color=WHITE,fill=DARK_BLUE,halign='center')
+    ws.merge_cells('E2:F3'); c(ws,'E2',periodo,bold=True,size=20,color=WHITE,fill=DARK_BLUE,halign='center')
+    c(ws,'H2','RECETAS',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'H3',total_recetas,bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0')
+    c(ws,'I2','FECHA DE PRESENTACION',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'I3',fecha_pres.strftime('%d/%m/%Y'),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center')
+    c(ws,'K2','DÍAS PROM.',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'K3',dias_pago,bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0')
+
+    for coord,label,val,clr in [('B5:C5','IMPORTE 100%',total_importe100,MID_BLUE),('E5:F5','A/C OSPRERA',total_ac,MID_BLUE),('H5:I5','AFILIADO',afiliado,MID_BLUE),('K5:L5','TOTAL PAGADO OSPRERA',total_pagado,GREEN)]:
+        ws.merge_cells(coord); start=coord.split(':')[0]; end=coord.split(':')[1]
+        r=int(start[1]); c_letter=start[0]; end_letter=end[0]
+        c(ws,f'{c_letter}{r}',label,size=9,color=WHITE,fill=clr,halign='center')
+        coord6=f'{c_letter}{r+1}:{end_letter}{r+1}'; ws.merge_cells(coord6)
+        n(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
+
+    c(ws,'B8','LIQ. FINAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+    c(ws,'C8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+    n(ws,'B9',total_pagado); ws['B9'].font=Font(bold=True,size=13,color=WHITE); ws['B9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B9'].alignment=Alignment(horizontal='center',vertical='center')
+    c(ws,'C9',dias_pago,bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
+
+    ws.merge_cells('B11:C11'); c(ws,'B11','CARÁTULAS',bold=True,size=11,halign='center')
+    ws.merge_cells('E11:F11'); c(ws,'E11','DESCUENTOS',bold=True,size=11,halign='center')
+    ws.merge_cells('H11:L11'); c(ws,'H11','PAGOS A FARMACIA',bold=True,size=11,halign='center')
+
+    ws.merge_cells('B12:C12'); c(ws,'B12','COMPOSICIÓN POR PLAN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'B13','PLAN',bold=True); c(ws,'C13','RECETAS',bold=True,halign='right')
+    row = 14
+    for plan, datos in planes_activos.items():
+        c(ws,f'B{row}',plan); ws[f'C{row}'].value=datos['recetas']; ws[f'C{row}'].alignment=Alignment(horizontal='right',vertical='center'); ws[f'C{row}'].font=Font(size=10); row+=1
+    c(ws,f'B{row}','TOTAL',bold=True); ws[f'C{row}'].value=total_recetas; ws[f'C{row}'].alignment=Alignment(horizontal='right',vertical='center'); ws[f'C{row}'].font=Font(bold=True,size=10)
+    row_end_car=row; box(ws,11,2,row_end_car,3)
+
+    ws.merge_cells('E12:F12'); c(ws,'E12','BONIFICACIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E13','Total:'); n(ws,'F13',bonificaciones)
+    ws.merge_cells('E14:F14'); c(ws,'E14','RETENCIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E15','Fdo Prest. COLFARMA:'); n(ws,'F15',abs(pre['fdo_prest_colfarma']))
+    c(ws,'E16','Colegio Art. 12 SU:'); n(ws,'F16',abs(pre['retencion_colegio_art12']))
+    c(ws,'E17','TOTAL',bold=True); n(ws,'F17',ret_cofa)
+    ws.merge_cells('E18:F18'); c(ws,'E18','DÉB. / CRÉD. OS',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E19','Débito OS:'); n(ws,'F19',deb_os)
+    c(ws,'E20','Crédito OS:'); n(ws,'F20',cred_os)
+    box(ws,11,5,20,6)
+
+    ws.merge_cells('H12:L12'); c(ws,'H12','LIQUIDACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'H13','TOTAL LIQUIDACIÓN',bold=True); n(ws,'I13',pre['total_liquidacion'])
+    c(ws,'H14','Fecha pago'); d(ws,'I14',parse_date(pago['fecha_pago']))
+    c(ws,'H15','Comprobante'); ws['I15'].value=pago['nro_comprobante_pago']; ws['I15'].alignment=Alignment(horizontal='right',vertical='center'); ws['I15'].font=Font(size=10)
+    box(ws,11,8,15,12)
+
+    ws2=wb.create_sheet('Resumen'); ws2.sheet_view.showGridLines=False
+    style=TableStyleInfo(name='TableStyleMedium2',showFirstColumn=False,showLastColumn=False,showRowStripes=True,showColumnStripes=False)
+    h1=['RECETAS','IMPORTE 100%','A/C OSPRERA','AFILIADO','%AFL','TOTAL PAGADO','%PAGADO','DIAS PAGO','DEBITOS OS','RETENCIONES','%RET','BONIFICACIONES','%BON']
+    for i,h in enumerate(h1): ws2.cell(1,i+1,h)
+    row2=[total_recetas,total_importe100,total_ac,afiliado,
+          afiliado/total_importe100 if total_importe100 else 0,
+          total_pagado,total_pagado/total_ac if total_ac else 0,
+          dias_pago,deb_os,ret_cofa,ret_cofa/total_ac if total_ac else 0,
+          bonificaciones,bonificaciones/total_ac if total_ac else 0]
+    for i,v in enumerate(row2):
+        cell=ws2.cell(2,i+1); cell.value=v
+        cell.number_format='0.00%' if isinstance(v,float) and abs(v)<10 else '#,##0.00'
+    tbl1=Table(displayName='tbl_osprera',ref='A1:M2'); tbl1.tableStyleInfo=style; ws2.add_table(tbl1)
+    for col in 'ABCDEFGHIJKLM': ws2.column_dimensions[col].width=20
+
+    buf=io.BytesIO(); wb.save(buf); buf.seek(0)
+    return buf
+
+@app.post("/reporte/osprera")
+async def reporte_osprera(
+    anio: str = Form(...), mes: str = Form(...),
+    caratulas: list[UploadFile] = File(...),
+    pre: UploadFile = File(...),
+    pago: UploadFile = File(...)
+):
+    pre_bytes = await pre.read()
+    pago_bytes = await pago.read()
+
+    planes_data = {
+        'GENERAL': {'recetas':0,'importe100':0.0,'ac_os':0.0},
+        'TRATAMIENTO PROLONGADO': {'recetas':0,'importe100':0.0,'ac_os':0.0},
+        'DECLARACIÓN DE DISPENSA': {'recetas':0,'importe100':0.0,'ac_os':0.0},
+    }
+
+    for car_file in caratulas:
+        cb = await car_file.read()
+        car_data = parse_json(ask_claude(
+            pdf_to_content(cb, 'CARÁTULA OSPRERA') + [{"type":"text","text":"Identificar el plan: General, Tratamiento Prolongado o Declaración de Dispensa. Extraé: {\"plan\":\"nombre del plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+            SYSTEM_JSON))
+        plan_name = car_data.get('plan','').upper()
+        if 'PROLONGADO' in plan_name: key='TRATAMIENTO PROLONGADO'
+        elif 'DISPENSA' in plan_name: key='DECLARACIÓN DE DISPENSA'
+        else: key='GENERAL'
+        planes_data[key]['recetas'] += car_data.get('nro_recetas',0)
+        planes_data[key]['importe100'] += car_data.get('importe_total',0.0)
+        planes_data[key]['ac_os'] += car_data.get('ac_os',0.0)
+
+    pre_data = parse_json(ask_claude(
+        pdf_to_content(pre_bytes, 'PRE OSPRERA') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). bonificaciones = BONIFICACIONES. fdo_prest_colfarma = FDO PREST COLFARMA. total_liquidacion = Total liquidación."}],
+        SYSTEM_JSON))
+
+    pago_data = parse_json(ask_claude(
+        pdf_to_content(pago_bytes, 'PAGO FINAL OSPRERA') + [{"type":"text","text":f"La fecha_pago es la Fecha del encabezado del documento. El nro_comprobante_pago es el número de Comprobante del encabezado. Confirmar que existe línea OSPRERA AMBULATORIO General con comprobante {pre_data.get('nro_comprobante','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":\"\"}}"}],
+        SYSTEM_JSON))
+
+    buf = build_osprera_excel(
+        {'planes': planes_data, 'pre': pre_data, 'pago': pago_data},
+        mes, anio[-2:]
+    )
+    filename = f"{anio[-2:]}.{mes} - Reporte OSPRERA.xlsx"
+    return StreamingResponse(buf, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                             headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+# ── UNION PERSONAL ─────────────────────────────────────────────────────────────
+
+def build_unionpersonal_excel(data, mes, anio):
+    planes = data['planes']; opf = data['opf']; pre = data['pre']; pago = data['pago']
+    fecha_pres = parse_date(pre['fecha_presentacion'])
+    dias_ant = days_diff(fecha_pres, parse_date(opf['fecha_opf']))
+    dias_liq = days_diff(fecha_pres, parse_date(pago['fecha_pago']))
+
+    total_recetas = sum(p.get('recetas', 0) for p in planes.values())
+    total_importe100 = sum(p.get('importe100', 0) for p in planes.values())
+    total_ac = sum(p.get('ac_os', 0) for p in planes.values())
+    afiliado = total_importe100 - total_ac
+
+    bonificaciones = abs(pre['bonificaciones'])
+    ret_cofa = abs(pre['fdo_prest_colfarma']) + abs(pre['retencion_colegio_art12'])
+    liq_final = pre['total_liquidacion'] - opf['efvo_up']
+    total_pagado = opf['efvo_up'] + liq_final
+    dias_prom = (opf['efvo_up']*dias_ant + liq_final*dias_liq) / total_pagado if total_pagado else 0
+    periodo = f'{mes}/{anio}'
+    planes_activos = {k: v for k, v in planes.items() if v.get('recetas', 0) > 0}
+
+    wb = Workbook(); ws = wb.active; ws.title = 'Reporte'
+    setup_ws(ws); header_bg(ws)
+
+    ws.merge_cells('B2:C3'); c(ws,'B2','UNIÓN PERSONAL',bold=True,size=16,color=WHITE,fill=DARK_BLUE,halign='center')
+    ws.merge_cells('E2:F3'); c(ws,'E2',periodo,bold=True,size=20,color=WHITE,fill=DARK_BLUE,halign='center')
+    c(ws,'H2','RECETAS',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'H3',total_recetas,bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0')
+    c(ws,'I2','FECHA DE PRESENTACION',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'I3',fecha_pres.strftime('%d/%m/%Y'),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center')
+    c(ws,'K2','DÍAS PROM.',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
+    c(ws,'K3',round(dias_prom,1),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0.0')
+
+    for coord,label,val,clr in [('B5:C5','IMPORTE 100%',total_importe100,MID_BLUE),('E5:F5','A/C UNIÓN PERSONAL',total_ac,MID_BLUE),('H5:I5','AFILIADO',afiliado,MID_BLUE),('K5:L5','TOTAL PAGADO UP',total_pagado,GREEN)]:
+        ws.merge_cells(coord); start=coord.split(':')[0]; end=coord.split(':')[1]
+        r=int(start[1]); c_letter=start[0]; end_letter=end[0]
+        c(ws,f'{c_letter}{r}',label,size=9,color=WHITE,fill=clr,halign='center')
+        coord6=f'{c_letter}{r+1}:{end_letter}{r+1}'; ws.merge_cells(coord6)
+        n(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
+
+    for col,col_dias,lbl,dias,val in [('B','C','ANTICIPO',dias_ant,opf['efvo_up']),('E','F','LIQ. FINAL',dias_liq,liq_final)]:
+        c(ws,f'{col}8',lbl,size=9,color=WHITE,fill=MID_BLUE,halign='center')
+        c(ws,f'{col_dias}8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
+        n(ws,f'{col}9',val); ws[f'{col}9'].font=Font(bold=True,size=13,color=WHITE); ws[f'{col}9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws[f'{col}9'].alignment=Alignment(horizontal='center',vertical='center')
+        c(ws,f'{col_dias}9',dias,bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
+
+    ws.merge_cells('B11:C11'); c(ws,'B11','CARÁTULAS',bold=True,size=11,halign='center')
+    ws.merge_cells('E11:F11'); c(ws,'E11','DESCUENTOS',bold=True,size=11,halign='center')
+    ws.merge_cells('H11:L11'); c(ws,'H11','PAGOS A FARMACIA',bold=True,size=11,halign='center')
+
+    ws.merge_cells('B12:C12'); c(ws,'B12','COMPOSICIÓN POR PLAN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'B13','PLAN',bold=True); c(ws,'C13','RECETAS',bold=True,halign='right')
+    row = 14
+    for plan, datos in planes_activos.items():
+        c(ws,f'B{row}',plan); ws[f'C{row}'].value=datos['recetas']; ws[f'C{row}'].alignment=Alignment(horizontal='right',vertical='center'); ws[f'C{row}'].font=Font(size=10); row+=1
+    c(ws,f'B{row}','TOTAL',bold=True); ws[f'C{row}'].value=total_recetas; ws[f'C{row}'].alignment=Alignment(horizontal='right',vertical='center'); ws[f'C{row}'].font=Font(bold=True,size=10)
+    row_end_car=row; box(ws,11,2,row_end_car,3)
+
+    ws.merge_cells('E12:F12'); c(ws,'E12','BONIFICACIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E13','Total:'); n(ws,'F13',bonificaciones)
+    ws.merge_cells('E14:F14'); c(ws,'E14','RETENCIONES',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'E15','Fdo Prest. COLFARMA:'); n(ws,'F15',abs(pre['fdo_prest_colfarma']))
+    c(ws,'E16','Colegio Art. 12 SU:'); n(ws,'F16',abs(pre['retencion_colegio_art12']))
+    c(ws,'E17','TOTAL',bold=True); n(ws,'F17',ret_cofa)
+    box(ws,11,5,17,6)
+
+    ws.merge_cells('H12:L12'); c(ws,'H12','ANTICIPO (OPF)',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'H13','TOTAL',bold=True); n(ws,'I13',opf['efvo_up'])
+    c(ws,'H14','Fecha pago'); d(ws,'I14',parse_date(opf['fecha_opf']))
+    c(ws,'H15','Comprobante'); ws['I15'].value=opf['nro_comprobante_opf']; ws['I15'].alignment=Alignment(horizontal='right',vertical='center'); ws['I15'].font=Font(size=10)
+    ws.merge_cells('H16:L16'); c(ws,'H16','LIQUIDACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
+    c(ws,'H17','Bruto a pagar antes imp.:'); n(ws,'I17',pre['total_liquidacion'])
+    c(ws,'H18','TOTAL',bold=True); n(ws,'I18',liq_final)
+    c(ws,'H19','Fecha pago'); d(ws,'I19',parse_date(pago['fecha_pago']))
+    c(ws,'H20','Comprobante'); ws['I20'].value=pago['nro_comprobante_pago']; ws['I20'].alignment=Alignment(horizontal='right',vertical='center'); ws['I20'].font=Font(size=10)
+    box(ws,11,8,20,12)
+
+    ws2=wb.create_sheet('Resumen'); ws2.sheet_view.showGridLines=False
+    style=TableStyleInfo(name='TableStyleMedium2',showFirstColumn=False,showLastColumn=False,showRowStripes=True,showColumnStripes=False)
+    h1=['RECETAS','IMPORTE 100%','A/C UP','AFILIADO','%AFL','TOTAL PAGADO','%PAGADO','DIAS PROM','RETENCIONES','%RET','BONIFICACIONES','%BON']
+    for i,h in enumerate(h1): ws2.cell(1,i+1,h)
+    row2=[total_recetas,total_importe100,total_ac,afiliado,
+          afiliado/total_importe100 if total_importe100 else 0,
+          total_pagado,total_pagado/total_ac if total_ac else 0,
+          round(dias_prom,2),ret_cofa,ret_cofa/total_ac if total_ac else 0,
+          bonificaciones,bonificaciones/total_ac if total_ac else 0]
+    for i,v in enumerate(row2):
+        cell=ws2.cell(2,i+1); cell.value=v
+        cell.number_format='0.00%' if isinstance(v,float) and abs(v)<10 else '#,##0.00'
+    tbl1=Table(displayName='tbl_unionpersonal',ref='A1:L2'); tbl1.tableStyleInfo=style; ws2.add_table(tbl1)
+    h2=['ANTICIPO','%UP ANT','DIAS ANT','LIQ FINAL','%UP LIQ','DIAS LIQ']
+    for i,h in enumerate(h2): ws2.cell(4,i+1,h)
+    row5=[opf['efvo_up'],opf['efvo_up']/total_pagado if total_pagado else 0,dias_ant,
+          liq_final,liq_final/total_pagado if total_pagado else 0,dias_liq]
+    for i,v in enumerate(row5):
+        cell=ws2.cell(5,i+1); cell.value=v
+        cell.number_format='0.00%' if isinstance(v,float) and abs(v)<10 else '#,##0.00'
+    tbl2=Table(displayName='tbl_up_desglose',ref='A4:F5'); tbl2.tableStyleInfo=style; ws2.add_table(tbl2)
+    for col in 'ABCDEFGHIJKL': ws2.column_dimensions[col].width=20
+
+    buf=io.BytesIO(); wb.save(buf); buf.seek(0)
+    return buf
+
+@app.post("/reporte/unionpersonal")
+async def reporte_unionpersonal(
+    anio: str = Form(...), mes: str = Form(...),
+    caratulas: list[UploadFile] = File(...),
+    opf: UploadFile = File(...),
+    pre: UploadFile = File(...),
+    pago: UploadFile = File(...)
+):
+    opf_bytes = await opf.read()
+    pre_bytes = await pre.read()
+    pago_bytes = await pago.read()
+
+    planes_data = {
+        'PLANES VARIOS': {'recetas':0,'importe100':0.0,'ac_os':0.0},
+        'DECLARACIÓN DE DISPENSA': {'recetas':0,'importe100':0.0,'ac_os':0.0},
+    }
+
+    for car_file in caratulas:
+        cb = await car_file.read()
+        car_data = parse_json(ask_claude(
+            pdf_to_content(cb, 'CARÁTULA UNIÓN PERSONAL') + [{"type":"text","text":"Identificar el plan: Planes Varios o Declaracion de dispensa. Extraé: {\"plan\":\"nombre del plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+            SYSTEM_JSON))
+        plan_name = car_data.get('plan','').upper()
+        key = 'DECLARACIÓN DE DISPENSA' if 'DISPENSA' in plan_name else 'PLANES VARIOS'
+        planes_data[key]['recetas'] += car_data.get('nro_recetas',0)
+        planes_data[key]['importe100'] += car_data.get('importe_total',0.0)
+        planes_data[key]['ac_os'] += car_data.get('ac_os',0.0)
+
+    opf_data = parse_json(ask_claude(
+        pdf_to_content(opf_bytes, 'OPF UNIÓN PERSONAL') + [{"type":"text","text":"Buscar línea UNION PERSONAL (SIFAR) con descripción que empiece con Efvo. La fecha_opf es la Fecha del encabezado. El nro_comprobante_opf es el Comprobante del encabezado. Extraé: {\"efvo_up\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":\"\"}"}],
+        SYSTEM_JSON))
+
+    pre_data = parse_json(ask_claude(
+        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
+        SYSTEM_JSON))
+
+    pago_data = parse_json(ask_claude(
+        pdf_to_content(pago_bytes, 'PAGO FINAL UNIÓN PERSONAL') + [{"type":"text","text":f"La fecha_pago es la Fecha del encabezado. El nro_comprobante_pago es el Comprobante del encabezado. Buscar línea UNION PERSONAL con liquidación nro {pre_data.get('nro_comprobante','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":\"\"}}"}],
+        SYSTEM_JSON))
+
+    buf = build_unionpersonal_excel(
+        {'planes': planes_data, 'opf': opf_data, 'pre': pre_data, 'pago': pago_data},
+        mes, anio[-2:]
+    )
+    filename = f"{anio[-2:]}.{mes} - Reporte Union Personal.xlsx"
+    return StreamingResponse(buf, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                             headers={'Content-Disposition': f'attachment; filename="{filename}"'})
