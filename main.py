@@ -116,6 +116,10 @@ def c(ws, coord, val, bold=False, size=10, color='000000', fill=None, halign='le
 def n(ws, coord, val):
     c(ws, coord, val, halign='right', num_fmt='#,##0.00')
 
+def ni(ws, coord, val):
+    """Número entero sin decimales"""
+    c(ws, coord, round(val) if val else 0, halign='right', num_fmt='#,##0')
+
 def d(ws, coord, val):
     ws[coord].value = val
     ws[coord].number_format = 'DD/MM/YYYY'
@@ -207,13 +211,13 @@ def build_pami_excel(data, q, mes, anio):
     c(ws,'K3',round(dias_prom,1),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0.0')
 
     ws.merge_cells('B5:C5'); c(ws,'B5','TOTAL PVP',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    ws.merge_cells('B6:C6'); n(ws,'B6',car['total_pvp']); ws['B6'].font=Font(bold=True,size=13,color=WHITE); ws['B6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('B6:C6'); ni(ws,'B6',car['total_pvp']); ws['B6'].font=Font(bold=True,size=13,color=WHITE); ws['B6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('E5:F5'); c(ws,'E5','PVP PAMI',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    ws.merge_cells('E6:F6'); n(ws,'E6',car['total_pvp_pami']); ws['E6'].font=Font(bold=True,size=13,color=WHITE); ws['E6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['E6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('E6:F6'); ni(ws,'E6',car['total_pvp_pami']); ws['E6'].font=Font(bold=True,size=13,color=WHITE); ws['E6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['E6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('H5:I5'); c(ws,'H5','AFILIADO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    ws.merge_cells('H6:I6'); n(ws,'H6',afiliado); ws['H6'].font=Font(bold=True,size=13,color=WHITE); ws['H6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['H6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('H6:I6'); ni(ws,'H6',afiliado); ws['H6'].font=Font(bold=True,size=13,color=WHITE); ws['H6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['H6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('K5:L5'); c(ws,'K5','TOTAL PAGADO PAMI',size=9,color=WHITE,fill=GREEN,halign='center')
-    ws.merge_cells('K6:L6'); n(ws,'K6',total_pagado); ws['K6'].font=Font(bold=True,size=13,color=WHITE); ws['K6'].fill=PatternFill('solid',fgColor=GREEN); ws['K6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('K6:L6'); ni(ws,'K6',total_pagado); ws['K6'].font=Font(bold=True,size=13,color=WHITE); ws['K6'].fill=PatternFill('solid',fgColor=GREEN); ws['K6'].alignment=Alignment(horizontal='center',vertical='center')
 
     for col,col_dias,lbl,dias,val in [('B','C','ANTICIPO',dias_ant,opf['efvo_pami']),('E','F','LIQ. FINAL',dias_liq,liq_final),('H','I','NOTAS RECUP.',dias_nr,total_ccf_ccfd+total_naf_nrfd),('K','L','EFVO. DROG.',dias_efsa,EfSa)]:
         c(ws,f'{col}8',lbl,size=9,color=WHITE,fill=MID_BLUE,halign='center')
@@ -344,7 +348,7 @@ def build_ioma_excel(data, mes, anio):
         r=int(start[1]); c_letter=start[0]; end_letter=end[0]
         c(ws,f'{c_letter}{r}',label,size=9,color=WHITE,fill=clr,halign='center')
         coord6=f'{c_letter}{r+1}:{end_letter}{r+1}'; ws.merge_cells(coord6)
-        n(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
+        ni(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
 
     for col,col_dias,lbl,dias,val in [('B','C','ANTICIPO',dias_ant,opf['efvo_ioma']),('E','F','LIQ. FINAL',dias_liq,liq_final),('H','I','NOTAS RECUP.',round(dias_nr_pond,1),total_nr)]:
         c(ws,f'{col}8',lbl,size=9,color=WHITE,fill=MID_BLUE,halign='center')
@@ -352,7 +356,7 @@ def build_ioma_excel(data, mes, anio):
         n(ws,f'{col}9',val); ws[f'{col}9'].font=Font(bold=True,size=13,color=WHITE); ws[f'{col}9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws[f'{col}9'].alignment=Alignment(horizontal='center',vertical='center')
         c(ws,f'{col_dias}9',dias,bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
     ws.merge_cells('K8:L8'); c(ws,'K8','ING. BRUTOS RETENIDOS',size=9,color=WHITE,fill=ORANGE,halign='center')
-    ws.merge_cells('K9:L9'); n(ws,'K9',total_ing_brutos); ws['K9'].font=Font(bold=True,size=13,color=WHITE); ws['K9'].fill=PatternFill('solid',fgColor=ORANGE); ws['K9'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('K9:L9'); ni(ws,'K9',total_ing_brutos); ws['K9'].font=Font(bold=True,size=13,color=WHITE); ws['K9'].fill=PatternFill('solid',fgColor=ORANGE); ws['K9'].alignment=Alignment(horizontal='center',vertical='center')
 
     ws.merge_cells('B11:C11'); c(ws,'B11','CARÁTULAS',bold=True,size=11,halign='center')
     ws.merge_cells('E11:F11'); c(ws,'E11','DESCUENTOS',bold=True,size=11,halign='center')
@@ -456,13 +460,13 @@ def build_osde_excel(data, mes, anio):
     c(ws,'K3',round(dias_prom,1),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0.0')
 
     ws.merge_cells('B5:C5'); c(ws,'B5','IMPORTE TOTAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    ws.merge_cells('B6:C6'); n(ws,'B6',car['importe_total']); ws['B6'].font=Font(bold=True,size=13,color=WHITE); ws['B6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('B6:C6'); ni(ws,'B6',car['importe_total']); ws['B6'].font=Font(bold=True,size=13,color=WHITE); ws['B6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('E5:F5'); c(ws,'E5','A/C OSDE',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    ws.merge_cells('E6:F6'); n(ws,'E6',car['a_cargo_osde']); ws['E6'].font=Font(bold=True,size=13,color=WHITE); ws['E6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['E6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('E6:F6'); ni(ws,'E6',car['a_cargo_osde']); ws['E6'].font=Font(bold=True,size=13,color=WHITE); ws['E6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['E6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('H5:I5'); c(ws,'H5','AFILIADO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
     ws.merge_cells('H6:I6'); n(ws,'H6',car['afiliado']); ws['H6'].font=Font(bold=True,size=13,color=WHITE); ws['H6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['H6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('K5:L5'); c(ws,'K5','TOTAL PAGADO OSDE',size=9,color=WHITE,fill=GREEN,halign='center')
-    ws.merge_cells('K6:L6'); n(ws,'K6',total_pagado); ws['K6'].font=Font(bold=True,size=13,color=WHITE); ws['K6'].fill=PatternFill('solid',fgColor=GREEN); ws['K6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('K6:L6'); ni(ws,'K6',total_pagado); ws['K6'].font=Font(bold=True,size=13,color=WHITE); ws['K6'].fill=PatternFill('solid',fgColor=GREEN); ws['K6'].alignment=Alignment(horizontal='center',vertical='center')
 
     for col,col_dias,lbl,dias,val in [('B','C','LIQ. FINAL',dias_pago,pre['neto_cobrar']),('E','F','NOTAS RECUP.',dias_nr,nr['nr_monto'])]:
         c(ws,f'{col}8',lbl,size=9,color=WHITE,fill=MID_BLUE,halign='center')
@@ -709,20 +713,20 @@ def build_ospecon_excel(data, mes, anio):
     c(ws,'I2','FECHA DE PRESENTACION',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
     c(ws,'I3',fecha_pres.strftime('%d/%m/%Y'),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center')
     c(ws,'K2','DÍAS PROM.',size=9,color='D6E4F0',fill=DARK_BLUE,halign='center')
-    c(ws,'K3',dias_pago,bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0')
+    c(ws,'K3',round(dias_pago),bold=True,size=14,color=WHITE,fill=DARK_BLUE,halign='center',num_fmt='#,##0')
 
     ws.merge_cells('B5:C5'); c(ws,'B5','IMPORTE TOTAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    ws.merge_cells('B6:C6'); n(ws,'B6',car['importe_total']); ws['B6'].font=Font(bold=True,size=13,color=WHITE); ws['B6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('B6:C6'); ni(ws,'B6',car['importe_total']); ws['B6'].font=Font(bold=True,size=13,color=WHITE); ws['B6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('E5:F5'); c(ws,'E5','A/C OSPECON',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    ws.merge_cells('E6:F6'); n(ws,'E6',car['ac_os']); ws['E6'].font=Font(bold=True,size=13,color=WHITE); ws['E6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['E6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('E6:F6'); ni(ws,'E6',car['ac_os']); ws['E6'].font=Font(bold=True,size=13,color=WHITE); ws['E6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['E6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('H5:I5'); c(ws,'H5','AFILIADO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    ws.merge_cells('H6:I6'); n(ws,'H6',afiliado); ws['H6'].font=Font(bold=True,size=13,color=WHITE); ws['H6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['H6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('H6:I6'); ni(ws,'H6',afiliado); ws['H6'].font=Font(bold=True,size=13,color=WHITE); ws['H6'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['H6'].alignment=Alignment(horizontal='center',vertical='center')
     ws.merge_cells('K5:L5'); c(ws,'K5','TOTAL PAGADO OSPECON',size=9,color=WHITE,fill=GREEN,halign='center')
-    ws.merge_cells('K6:L6'); n(ws,'K6',pre['neto_cobrar']); ws['K6'].font=Font(bold=True,size=13,color=WHITE); ws['K6'].fill=PatternFill('solid',fgColor=GREEN); ws['K6'].alignment=Alignment(horizontal='center',vertical='center')
+    ws.merge_cells('K6:L6'); ni(ws,'K6',pre['neto_cobrar']); ws['K6'].font=Font(bold=True,size=13,color=WHITE); ws['K6'].fill=PatternFill('solid',fgColor=GREEN); ws['K6'].alignment=Alignment(horizontal='center',vertical='center')
 
     c(ws,'B8','LIQ. FINAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
     c(ws,'C8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
-    n(ws,'B9',pre['neto_cobrar']); ws['B9'].font=Font(bold=True,size=13,color=WHITE); ws['B9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B9'].alignment=Alignment(horizontal='center',vertical='center')
+    ni(ws,'B9',pre['neto_cobrar']); ws['B9'].font=Font(bold=True,size=13,color=WHITE); ws['B9'].fill=PatternFill('solid',fgColor=MID_BLUE); ws['B9'].alignment=Alignment(horizontal='center',vertical='center')
     c(ws,'C9',dias_pago,bold=True,size=13,color=WHITE,fill=MID_BLUE,halign='center')
 
     ws.merge_cells('B11:C11'); c(ws,'B11','PAGOS A FARMACIA',bold=True,size=11,halign='center')
@@ -796,7 +800,7 @@ async def reporte_ospecon(
 
 def build_osprera_excel(data, mes, anio):
     planes = data['planes']; pre = data['pre']; pago = data['pago']
-    fecha_pres = parse_date(pre['fecha_presentacion'])
+    fecha_pres = parse_date(data.get('fecha_cierre') or pre['fecha_presentacion'])
     dias_pago = days_diff(fecha_pres, parse_date(pago['fecha_pago']))
 
     total_recetas = sum(p.get('recetas', 0) for p in planes.values())
@@ -830,7 +834,7 @@ def build_osprera_excel(data, mes, anio):
         r=int(start[1]); c_letter=start[0]; end_letter=end[0]
         c(ws,f'{c_letter}{r}',label,size=9,color=WHITE,fill=clr,halign='center')
         coord6=f'{c_letter}{r+1}:{end_letter}{r+1}'; ws.merge_cells(coord6)
-        n(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
+        ni(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
 
     c(ws,'B8','LIQ. FINAL',size=9,color=WHITE,fill=MID_BLUE,halign='center')
     c(ws,'C8','DIAS DE PAGO',size=9,color=WHITE,fill=MID_BLUE,halign='center')
@@ -902,11 +906,13 @@ async def reporte_osprera(
         'DECLARACIÓN DE DISPENSA': {'recetas':0,'importe100':0.0,'ac_os':0.0},
     }
 
+    fecha_cierre_osprera = None
     for car_file in caratulas:
         cb = await car_file.read()
         car_data = parse_json(ask_claude(
             pdf_to_content(cb, 'CARÁTULA OSPRERA') + [{"type":"text","text":"Identificar el plan: General, Tratamiento Prolongado o Declaración de Dispensa. Extraé: {\"plan\":\"nombre del plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
             SYSTEM_JSON))
+        if not fecha_cierre_osprera: fecha_cierre_osprera = car_data.get('fecha_cierre')
         plan_name = car_data.get('plan','').upper()
         if 'PROLONGADO' in plan_name: key='TRATAMIENTO PROLONGADO'
         elif 'DISPENSA' in plan_name: key='DECLARACIÓN DE DISPENSA'
@@ -916,7 +922,7 @@ async def reporte_osprera(
         planes_data[key]['ac_os'] += car_data.get('ac_os',0.0)
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE OSPRERA') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"ajuste_facturacion\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). Para ajuste_facturacion: identificá pares que se cancelan (mismo monto, uno Débitos y otro Créditos) y excluílos, el valor es el monto de la línea sin contraparte (positivo si débito, negativo si crédito), 0 si no hay. bonificaciones = BONIFICACIONES. fdo_prest_colfarma = FDO PREST COLFARMA. total_liquidacion = Total liquidación."}],
+        pdf_to_content(pre_bytes, 'PRE OSPRERA') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). bonificaciones = BONIFICACIONES. fdo_prest_colfarma = FDO PREST COLFARMA. total_liquidacion = Total liquidación."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
@@ -924,7 +930,7 @@ async def reporte_osprera(
         SYSTEM_JSON))
 
     buf = build_osprera_excel(
-        {'planes': planes_data, 'pre': pre_data, 'pago': pago_data},
+        {'planes': planes_data, 'pre': pre_data, 'pago': pago_data, 'fecha_cierre': fecha_cierre_osprera},
         mes, anio[-2:]
     )
     filename = f"{anio[-2:]}.{mes} - Reporte OSPRERA.xlsx"
@@ -935,7 +941,7 @@ async def reporte_osprera(
 
 def build_unionpersonal_excel(data, mes, anio):
     planes = data['planes']; opf = data['opf']; pre = data['pre']; pago = data['pago']
-    fecha_pres = parse_date(pre['fecha_presentacion'])
+    fecha_pres = parse_date(data.get('fecha_cierre') or pre['fecha_presentacion'])
     dias_ant = days_diff(fecha_pres, parse_date(opf['fecha_opf']))
     dias_liq = days_diff(fecha_pres, parse_date(pago['fecha_pago']))
 
@@ -946,7 +952,6 @@ def build_unionpersonal_excel(data, mes, anio):
 
     bonificaciones = abs(pre['bonificaciones'])
     ret_cofa = abs(pre['fdo_prest_colfarma']) + abs(pre['retencion_colegio_art12'])
-    ajuste = pre.get('ajuste_facturacion', 0)
     liq_final = pre['total_liquidacion'] - opf['efvo_up']
     total_pagado = opf['efvo_up'] + liq_final
     dias_prom = (opf['efvo_up']*dias_ant + liq_final*dias_liq) / total_pagado if total_pagado else 0
@@ -970,7 +975,7 @@ def build_unionpersonal_excel(data, mes, anio):
         r=int(start[1]); c_letter=start[0]; end_letter=end[0]
         c(ws,f'{c_letter}{r}',label,size=9,color=WHITE,fill=clr,halign='center')
         coord6=f'{c_letter}{r+1}:{end_letter}{r+1}'; ws.merge_cells(coord6)
-        n(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
+        ni(ws,f'{c_letter}{r+1}',val); ws[f'{c_letter}{r+1}'].font=Font(bold=True,size=13,color=WHITE); ws[f'{c_letter}{r+1}'].fill=PatternFill('solid',fgColor=clr); ws[f'{c_letter}{r+1}'].alignment=Alignment(horizontal='center',vertical='center')
 
     for col,col_dias,lbl,dias,val in [('B','C','ANTICIPO',dias_ant,opf['efvo_up']),('E','F','LIQ. FINAL',dias_liq,liq_final)]:
         c(ws,f'{col}8',lbl,size=9,color=WHITE,fill=MID_BLUE,halign='center')
@@ -996,9 +1001,7 @@ def build_unionpersonal_excel(data, mes, anio):
     c(ws,'E15','Fdo Prest. COLFARMA:'); n(ws,'F15',abs(pre['fdo_prest_colfarma']))
     c(ws,'E16','Colegio Art. 12 SU:'); n(ws,'F16',abs(pre['retencion_colegio_art12']))
     c(ws,'E17','TOTAL',bold=True); n(ws,'F17',ret_cofa)
-    ws.merge_cells('E18:F18'); c(ws,'E18','AJUSTE FACTURACIÓN',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'E19','Débito:'); n(ws,'F19',ajuste)
-    box(ws,11,5,19,6)
+    box(ws,11,5,17,6)
 
     ws.merge_cells('H12:L12'); c(ws,'H12','ANTICIPO (OPF)',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
     c(ws,'H13','TOTAL',bold=True); n(ws,'I13',opf['efvo_up'])
@@ -1054,11 +1057,13 @@ async def reporte_unionpersonal(
         'DECLARACIÓN DE DISPENSA': {'recetas':0,'importe100':0.0,'ac_os':0.0},
     }
 
+    fecha_cierre_up = None
     for car_file in caratulas:
         cb = await car_file.read()
         car_data = parse_json(ask_claude(
             pdf_to_content(cb, 'CARÁTULA UNIÓN PERSONAL') + [{"type":"text","text":"Identificar el plan: Planes Varios o Declaracion de dispensa. Extraé: {\"plan\":\"nombre del plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
             SYSTEM_JSON))
+        if not fecha_cierre_up: fecha_cierre_up = car_data.get('fecha_cierre')
         plan_name = car_data.get('plan','').upper()
         key = 'DECLARACIÓN DE DISPENSA' if 'DISPENSA' in plan_name else 'PLANES VARIOS'
         planes_data[key]['recetas'] += car_data.get('nro_recetas',0)
@@ -1070,7 +1075,7 @@ async def reporte_unionpersonal(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"ajuste_facturacion\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. Para ajuste_facturacion: identificá pares que se cancelan (mismo monto, uno Débitos y otro Créditos) y excluílos, el valor es el monto de la línea sin contraparte (positivo si débito, negativo si crédito), 0 si no hay. bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
+        pdf_to_content(pre_bytes, 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
@@ -1078,7 +1083,7 @@ async def reporte_unionpersonal(
         SYSTEM_JSON))
 
     buf = build_unionpersonal_excel(
-        {'planes': planes_data, 'opf': opf_data, 'pre': pre_data, 'pago': pago_data},
+        {'planes': planes_data, 'opf': opf_data, 'pre': pre_data, 'pago': pago_data, 'fecha_cierre': fecha_cierre_up},
         mes, anio[-2:]
     )
     filename = f"{anio[-2:]}.{mes} - Reporte Union Personal.xlsx"
