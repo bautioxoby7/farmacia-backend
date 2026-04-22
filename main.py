@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 import anthropic
@@ -13,8 +13,6 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 import base64
 import json
 import httpx
-from bs4 import BeautifulSoup
-import re as _re
 
 app = FastAPI()
 
@@ -2206,111 +2204,19 @@ def build_reporte_anual(reportes_data, os_nombre, anio):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DÉBITOS PAMI — Scraper con cookie de sesión + Análisis IA
+# DÉBITOS PAMI — El scraping lo hace el frontend (browser del usuario)
+# El backend solo recibe los datos y genera el análisis con IA
 # ══════════════════════════════════════════════════════════════════════════════
-
-COFA_RESUMEN_URL = "https://ncr.cofa.org.ar/tablero/resumen/"
-COFA_AJUSTES_URL = "https://ncr.cofa.org.ar/tablero/resumen/Ajustes/"
-
-
-async def cofa_get_ajustes(session_cookie: str, periodo: str) -> list[dict]:
-    """Usa la cookie de sesión para obtener los débitos del período."""
-    headers = {
-        "Cookie": f"ASPSESSIONIDQETCCSSC={session_cookie}",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30, headers=headers) as cofa:
-        resp = await cofa.post(COFA_RESUMEN_URL, data={"PeriodoX": periodo})
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"Error al cargar período: {resp.status_code}")
-        # Debug: mostrar URL final para diagnosticar
-        url_final = str(resp.url)
-        if "servicios.cofa.org.ar" in url_final or (hasattr(resp.url, 'path') and resp.url.path.rstrip("/").endswith("ncr")):
-            raise HTTPException(status_code=401, detail=f"Sesión expirada. URL final: {url_final}")
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        ajuste_links = []
-        monto_total = 0.0
-
-        for row in soup.find_all("tr"):
-            cells = row.find_all("td")
-            if not cells:
-                continue
-            row_text = " ".join(c.get_text(strip=True) for c in cells)
-            if "AJUSTE" in row_text.upper() and "DEBITO" in row_text.upper():
-                for u_tag in row.find_all("u"):
-                    link_text = u_tag.get_text(strip=True)
-                    if _re.match(r"^\dQ\d{4}$", link_text):
-                        ajuste_links.append(link_text)
-                for cell in cells:
-                    txt = cell.get_text(strip=True).replace(".", "").replace(",", ".")
-                    try:
-                        val = float(txt)
-                        if val > 0:
-                            monto_total += val
-                            break
-                    except ValueError:
-                        continue
-
-        if not ajuste_links:
-            return []
-
-        ajustes = []
-        for link_id in ajuste_links:
-            archivos = await cofa_get_archivos_ajuste(cofa, periodo, link_id)
-            monto_ajuste = monto_total / len(ajuste_links) if len(ajuste_links) > 1 else monto_total
-            ajustes.append({"id": link_id, "monto": round(monto_ajuste, 2), "archivos": archivos})
-
-        return ajustes
-
-
-async def cofa_get_archivos_ajuste(cofa: httpx.AsyncClient, periodo: str, ajuste_id: str) -> list[dict]:
-    """Obtiene los archivos PNG de un ajuste específico."""
-    resp = await cofa.get(COFA_AJUSTES_URL, params={"ID": ajuste_id})
-    if resp.status_code != 200 or not resp.text.strip():
-        resp = await cofa.post(COFA_AJUSTES_URL, data={"IDajuste": ajuste_id, "PeriodoX": periodo})
-    if resp.status_code != 200 or not resp.text.strip():
-        return []
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-    archivos = []
-    for row in soup.find_all("tr"):
-        cells = row.find_all("td")
-        if len(cells) < 4:
-            continue
-        nombre_raw = cells[1].get_text(strip=True)
-        nota = cells[3].get_text(strip=True)
-        if not nombre_raw.endswith(".png"):
-            continue
-        nombre_base = _re.sub(r"_00[12]\.png$", "", nombre_raw)
-        if nombre_base and not any(a["nombre"] == nombre_base for a in archivos):
-            archivos.append({"nombre": nombre_base, "nota": nota})
-    return archivos
-
-
-async def cofa_descargar_imagen(session_cookie: str, nombre_archivo: str) -> bytes | None:
-    """Descarga una imagen de receta usando la cookie de sesión."""
-    headers = {
-        "Cookie": f"ASPSESSIONIDQETCCSSC={session_cookie}",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30, headers=headers) as cofa:
-        url = f"{COFA_AJUSTES_URL}img/{nombre_archivo}"
-        resp = await cofa.get(url)
-        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("image"):
-            return resp.content
-    return None
-
 
 SYSTEM_DEBITOS = "CRÍTICO: Respondé ÚNICAMENTE con el objeto JSON solicitado. Sin texto, sin explicaciones, sin markdown. Empezá con { y terminá con }."
 
 
 async def generar_resumen_ia_debitos(ajustes: list[dict]) -> dict:
-    """Genera un resumen ejecutivo con recomendaciones basado en los patrones de error."""
+    """Genera resumen ejecutivo con recomendaciones basado en los patrones de error."""
     errores: dict = {}
     total_recetas = 0
     for aj in ajustes:
-        for arch in aj["archivos"]:
+        for arch in aj.get("archivos", []):
             nota = arch.get("nota", "Desconocido")
             errores[nota] = errores.get(nota, 0) + 1
             total_recetas += 1
@@ -2325,11 +2231,12 @@ async def generar_resumen_ia_debitos(ajustes: list[dict]) -> dict:
     )
 
     prompt = (
-        "Analizá los siguientes débitos de PAMI de una farmacia argentina:\n"
-        f"Total de recetas debitadas: {total_recetas}\n"
-        f"Distribución de errores:\n{errores_texto}\n\n"
-        "Generá un análisis en JSON con los campos: "
-        "conclusion_principal, patron_dominante, recomendaciones (lista con prioridad/accion/detalle), proceso_a_revisar"
+        "Analiza los siguientes debitos de PAMI de una farmacia argentina. "
+        f"Total de recetas debitadas: {total_recetas}. "
+        f"Distribucion de errores: {errores_texto}. "
+        "Genera un analisis en JSON con los campos: "
+        "conclusion_principal, patron_dominante, "
+        "recomendaciones (lista con prioridad/accion/detalle), proceso_a_revisar"
     )
 
     msg = client.messages.create(
@@ -2344,71 +2251,51 @@ async def generar_resumen_ia_debitos(ajustes: list[dict]) -> dict:
         return {"conclusion_principal": f"Se detectaron {total_recetas} recetas debitadas", "recomendaciones": []}
 
 
-@app.post("/debitos/scrape")
-async def scrape_debitos(
-    session_cookie: str = Form(...),
-    periodo: str = Form(...)
-):
-    """
-    Extrae débitos PAMI usando la cookie de sesión de ncr.cofa.org.ar.
-    El usuario debe hacer login manual en COFA y pasar la cookie ASPSESSIONIDQETCCSSC.
-    periodo: formato "2025|11|2" (año|mes|quincena)
-    """
-    try:
-        ajustes = await cofa_get_ajustes(session_cookie, periodo)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Error en scraping: {str(e)}")
-
-    if not ajustes:
-        return JSONResponse({"periodo": periodo, "ajustes": [], "total_recetas": 0,
-                             "total_monto": 0, "mensaje": "No se encontraron débitos para este período"})
-
-    errores: dict = {}
-    total_recetas = 0
-    for aj in ajustes:
-        for arch in aj["archivos"]:
-            nota = arch.get("nota", "Desconocido")
-            errores[nota] = errores.get(nota, 0) + 1
-            total_recetas += 1
-
-    return JSONResponse({
-        "periodo": periodo,
-        "ajustes": ajustes,
-        "total_recetas": total_recetas,
-        "total_monto": round(sum(aj["monto"] for aj in ajustes), 2),
-        "distribucion_errores": [
-            {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
-            for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
-        ]
-    })
-
-
 @app.post("/debitos/analizar")
-async def analizar_debitos(
-    session_cookie: str = Form(...),
-    periodo: str = Form(...)
-):
-    """Scraping completo + resumen ejecutivo con recomendaciones generado por IA."""
+async def analizar_debitos(request: Request):
+    """
+    Recibe los datos de débitos extraídos por el frontend (browser del usuario)
+    y genera un análisis con IA.
+
+    Body JSON:
+    {
+        "periodo": "2025|11|2",
+        "ajustes": [
+            {
+                "id": "1Q2502",
+                "monto": 148320.50,
+                "archivos": [
+                    {"nombre": "025020318274...", "nota": "Difiere / Falta Troquel r1"},
+                    ...
+                ]
+            }
+        ]
+    }
+    """
     try:
-        ajustes = await cofa_get_ajustes(session_cookie, periodo)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Body JSON inválido")
+
+    periodo = body.get("periodo", "")
+    ajustes = body.get("ajustes", [])
 
     if not ajustes:
-        return JSONResponse({"periodo": periodo, "ajustes": [], "total_recetas": 0,
-                             "total_monto": 0, "resumen_ia": None,
-                             "mensaje": "No se encontraron débitos para este período"})
+        return JSONResponse({
+            "periodo": periodo,
+            "ajustes": [],
+            "total_recetas": 0,
+            "total_monto": 0,
+            "resumen_ia": None,
+            "mensaje": "No se encontraron débitos para este período"
+        })
 
     resumen = await generar_resumen_ia_debitos(ajustes)
 
     errores: dict = {}
     total_recetas = 0
     for aj in ajustes:
-        for arch in aj["archivos"]:
+        for arch in aj.get("archivos", []):
             nota = arch.get("nota", "Desconocido")
             errores[nota] = errores.get(nota, 0) + 1
             total_recetas += 1
@@ -2417,31 +2304,13 @@ async def analizar_debitos(
         "periodo": periodo,
         "ajustes": ajustes,
         "total_recetas": total_recetas,
-        "total_monto": round(sum(aj["monto"] for aj in ajustes), 2),
+        "total_monto": round(sum(aj.get("monto", 0) for aj in ajustes), 2),
         "distribucion_errores": [
             {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
             for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
         ],
         "resumen_ia": resumen
     })
-
-
-@app.get("/debitos/imagen")
-async def obtener_imagen_receta(
-    session_cookie: str,
-    nombre_archivo: str
-):
-    """Descarga y retorna una imagen de receta como base64."""
-    try:
-        img_bytes = await cofa_descargar_imagen(session_cookie, nombre_archivo)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-    if not img_bytes:
-        raise HTTPException(status_code=404, detail="Imagen no encontrada")
-
-    b64 = base64.standard_b64encode(img_bytes).decode()
-    return JSONResponse({"nombre": nombre_archivo, "data": f"data:image/png;base64,{b64}"})
 
 
 
