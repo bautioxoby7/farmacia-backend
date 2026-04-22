@@ -57,9 +57,25 @@ def parse_json(text):
     text = text.strip()
     start = text.find('{')
     end = text.rfind('}') + 1
-    if start >= 0 and end > start:
-        return json.loads(text[start:end])
-    raise ValueError(f"No JSON found in: {text[:200]}")
+    if start < 0 or end <= start:
+        raise ValueError(f"No JSON found in: {text[:200]}")
+    json_str = text[start:end]
+    # Intentar parsear directo
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        pass
+    # Limpiar caracteres problemáticos y reintentar
+    import re
+    # Eliminar saltos de línea dentro de strings
+    json_str = re.sub(r'(?<!\)\n', ' ', json_str)
+    json_str = re.sub(r'(?<!\)\r', ' ', json_str)
+    # Eliminar caracteres de control
+    json_str = re.sub(r'[-]', ' ', json_str)
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON parse error: {e} in: {json_str[:200]}")
 
 def xls_to_text(file_bytes, filename):
     import tempfile
