@@ -2288,7 +2288,7 @@ async def cofa_scrape(farmacia: str, clave: str, periodo: str) -> list[dict]:
             await page.wait_for_timeout(2000)
 
             # 4. Extraer ajustes del HTML del iframe
-            iframe_src = await page.evaluate("document.querySelector('[name=\'frameC\']')?.src || ''")
+            iframe_src = await page.evaluate("document.querySelector('iframe[name=frameC]')?.src || ''")
 
             # Leer el HTML de la página principal (tabla con AJUSTE/DEBITO)
             html_resumen = await page.content()
