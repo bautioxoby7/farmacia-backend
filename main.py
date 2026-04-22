@@ -570,7 +570,7 @@ async def reporte_pami(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. Todos los valores deben ser positivos (sin signo negativo). efectivo_drogueria = valor absoluto de EFECTIVO DROGUERIA SALDO."}],
+        pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. IMPORTANTE: deb_cred_os debe ser NEGATIVO si es un débito (el PRE lo muestra con signo negativo), positivo si es crédito, 0 si no existe. Todos los demás valores deben ser positivos (sin signo negativo). efectivo_drogueria = valor absoluto de EFECTIVO DROGUERIA SALDO."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
@@ -1298,7 +1298,7 @@ async def batch_pami(zip_file: UploadFile = File(...)):
                     pdf_to_content(opf_bytes, 'OPF PAMI') + [{"type":"text","text":f"Período: {periodo}. Buscar línea Efvo.PAMI. Extraé: {{\"efvo_pami\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":0}}"}],
                     SYSTEM_JSON))
                 pre_data = parse_json(ask_claude(
-                    pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. Todos los valores deben ser positivos (sin signo negativo). efectivo_drogueria = valor absoluto de EFECTIVO DROGUERIA SALDO."}],
+                    pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. IMPORTANTE: deb_cred_os debe ser NEGATIVO si es un débito (el PRE lo muestra con signo negativo), positivo si es crédito, 0 si no existe. Todos los demás valores deben ser positivos (sin signo negativo). efectivo_drogueria = valor absoluto de EFECTIVO DROGUERIA SALDO."}],
                     SYSTEM_JSON))
                 pago_data = parse_json(ask_claude(
                     pdf_to_content(pago_bytes, 'PAGO FINAL PAMI') + [{"type":"text","text":"Buscar línea PAMI. Extraé: {\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0}"}],
