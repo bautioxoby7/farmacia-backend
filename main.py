@@ -2230,17 +2230,17 @@ async def cofa_scrape(farmacia: str, clave: str, periodo: str) -> list[dict]:
         try:
             # 1. Login
             await page.goto(COFA_LOGIN_URL, wait_until="networkidle")
-            await page.fill('[name="Farmacia"]', farmacia)
-            await page.fill('[name="Clave"]', clave)
+            await page.fill('[name=\'Farmacia\']', farmacia)
+            await page.fill('[name=\'Clave\']', clave)
 
             # Esperar que reCAPTCHA v3 genere el token automáticamente
             await page.wait_for_timeout(2000)
 
             # Ejecutar recaptcha manualmente si el token está vacío
-            token_vacío = await page.evaluate(
-                "document.querySelector('[name="recaptcha_response"]')?.value || ''"
+            token_vacio = await page.evaluate(
+                "document.querySelector('[name=\'recaptcha_response\']')?.value || ''"
             )
-            if not token_vacío:
+            if not token_vacio:
                 await page.evaluate("""
                     grecaptcha.ready(() => {
                         grecaptcha.execute('6LeMGnkUAAAAAGwmr1orFWBA0JlPgdo57-1YOZRN', {action: 'submit'})
@@ -2250,7 +2250,7 @@ async def cofa_scrape(farmacia: str, clave: str, periodo: str) -> list[dict]:
                 await page.wait_for_timeout(2000)
 
             # Submit del form
-            await page.click('[name="B1"]')
+            await page.click('[name=\'B1\']')
             await page.wait_for_load_state("networkidle")
 
             # Verificar login exitoso
@@ -2274,9 +2274,7 @@ async def cofa_scrape(farmacia: str, clave: str, periodo: str) -> list[dict]:
             await page.wait_for_timeout(2000)
 
             # 4. Extraer ajustes del HTML del iframe
-            iframe_src = await page.evaluate(
-                "document.querySelector('iframe[name="frameC"]')?.src || ''"
-            )
+            iframe_src = await page.evaluate("document.querySelector('[name=\'frameC\']')?.src || ''")
 
             # Leer el HTML de la página principal (tabla con AJUSTE/DEBITO)
             html_resumen = await page.content()
@@ -2364,17 +2362,21 @@ async def cofa_descargar_imagen_playwright(farmacia: str, clave: str, periodo: s
         try:
             # Login rápido
             await page.goto(COFA_LOGIN_URL, wait_until="networkidle")
-            await page.fill('[name="Farmacia"]', farmacia)
-            await page.fill('[name="Clave"]', clave)
+            await page.fill("input[name='Farmacia']", farmacia)
+            await page.fill("input[name='Clave']", clave)
             await page.wait_for_timeout(2000)
-            await page.evaluate("""
-                grecaptcha.ready(() => {
-                    grecaptcha.execute('6LeMGnkUAAAAAGwmr1orFWBA0JlPgdo57-1YOZRN', {action: 'submit'})
-                        .then(token => { document.querySelector('[name="recaptcha_response"]').value = token; });
-                });
-            """)
+            sitekey = "6LeMGnkUAAAAAGwmr1orFWBA0JlPgdo57-1YOZRN"
+            js2 = f"""
+                grecaptcha.ready(() => {{
+                    grecaptcha.execute('{sitekey}', {{action: 'submit'}})
+                        .then(token => {{
+                            document.querySelector("[name='recaptcha_response']").value = token;
+                        }});
+                }});
+            """
+            await page.evaluate(js2)
             await page.wait_for_timeout(2000)
-            await page.click('[name="B1"]')
+            await page.click("input[name='B1']")
             await page.wait_for_load_state("networkidle")
             # Descargar imagen
             response = await page.request.get(img_url)
