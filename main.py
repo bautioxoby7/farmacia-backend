@@ -1790,8 +1790,7 @@ def detectar_os_desde_nombre(filename):
     if 'UNION' in name or 'PERSONAL' in name: return 'UNION PERSONAL'
     if 'OSDE' in name: return 'OSDE'
     # Formato antiguo sin nombre de OS: "25.01.1Q - Reporte.xlsx"
-    import re
-    if re.match(r'\d{2}\.\d{2}', filename): return 'PAMI'
+    if filename[:2].isdigit() and '.' in filename[:5]: return 'PAMI'
     return 'DESCONOCIDA'
 
 def leer_resumen_reporte(xlsx_bytes, filename):
