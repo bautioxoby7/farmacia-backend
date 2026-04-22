@@ -18,6 +18,20 @@ import re as _re
 
 app = FastAPI()
 
+import subprocess as _subprocess
+import sys as _sys
+
+# Instalar Chromium de Playwright al arrancar si no está disponible
+try:
+    _subprocess.run(
+        [_sys.executable, "-m", "playwright", "install", "chromium"],
+        check=True, capture_output=True
+    )
+    print("Chromium instalado correctamente")
+except Exception as _e:
+    print(f"Warning: no se pudo instalar Chromium: {_e}")
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
