@@ -1315,3 +1315,449 @@ async def batch_pami(zip_file: UploadFile = File(...)):
     output_zip.seek(0)
     return StreamingResponse(output_zip, media_type='application/zip',
                              headers={'Content-Disposition': 'attachment; filename="Reportes_PAMI.zip"'})
+
+@app.post("/batch/ioma")
+async def batch_ioma(zip_file: UploadFile = File(...)):
+    zip_bytes = await zip_file.read()
+    output_zip = io.BytesIO()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            z.extractall(tmpdir)
+
+        reportes = []; errores = []
+        meses_map = {'Enero':'01','Febrero':'02','Marzo':'03','Abril':'04','Mayo':'05','Junio':'06','Julio':'07','Agosto':'08','Septiembre':'09','Octubre':'10','Noviembre':'11','Diciembre':'12'}
+
+        for root, dirs, files in os.walk(tmpdir):
+            rel = os.path.relpath(root, tmpdir).replace('\\','/')
+            parts = rel.split('/')
+            # Nivel de mes: contiene nombre de mes y tiene subcarpetas de caratulas/liquidaciones
+            if not any(m in rel for m in meses_map.keys()): continue
+            if not any(os.path.isdir(os.path.join(root, d)) for d in os.listdir(root)): continue
+
+            all_files = [os.path.join(root, f) for f in os.listdir(root) if os.path.isfile(os.path.join(root, f))]
+            subdirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+
+            car_dir = next((d for d in subdirs if 'caratula' in os.path.basename(d).lower()), None)
+            liq_dir = next((d for d in subdirs if 'liquidac' in os.path.basename(d).lower()), None)
+            nr_file = find_file(all_files, 'notas', 'recupero', '.xls')
+
+            if not liq_dir: continue
+
+            car_files = sorted([os.path.join(car_dir, f) for f in os.listdir(car_dir)]) if car_dir else []
+            liq_files = [os.path.join(liq_dir, f) for f in os.listdir(liq_dir)]
+
+            opf_file = find_file(liq_files, 'opf')
+            pre_file = find_file(liq_files, 'pre')
+            pago_file = find_file(liq_files, 'pago')
+
+            if not all([car_files, opf_file, pre_file, pago_file]):
+                errores.append(f"Faltan archivos en: {rel}"); continue
+
+            anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
+            mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
+            if not anio_part or not mes_part:
+                errores.append(f"No se pudo determinar mes/año en: {rel}"); continue
+
+            mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
+            anio = anio_part
+
+            try:
+                agudo_bytes = read_file(car_files[0])
+                agudo_data = parse_json(ask_claude(
+                    pdf_to_content(agudo_bytes, 'AGUDO/CRÓNICO IOMA') + [{"type":"text","text":"Buscar RX ON LINE/TOTALIDAD DE LAS RECETAS. Si es un Resumen de Facturación del Colegio, la fecha_cierre es la \"Fecha de Proceso\". Si es una Carátula On-Line, la fecha_cierre es la \"Fecha de generación\". Extraé: {\"fecha_cierre\":\"DD/MM/YYYY\",\"recetas\":0,\"importe100\":0.0,\"ac_instituto\":0.0}"}],
+                    SYSTEM_JSON))
+
+                planes_data = {
+                    'AGUDO/CRÓNICO': {'recetas':agudo_data['recetas'],'importe100':agudo_data['importe100'],'ac_instituto':agudo_data['ac_instituto']},
+                    'RECURSOS DE AMPARO': {'recetas':0,'importe100':0,'ac_instituto':0},
+                    'RESOLUCIÓN DE DIRECTORIO': {'recetas':0,'importe100':0,'ac_instituto':0},
+                    'MAMI': {'recetas':0,'importe100':0,'ac_instituto':0},
+                    'MAYOR COBERTURA': {'recetas':0,'importe100':0,'ac_instituto':0},
+                    'VACUNAS': {'recetas':0,'importe100':0,'ac_instituto':0},
+                }
+
+                for cb_path in car_files[1:]:
+                    cb = read_file(cb_path)
+                    # Detectar tipo
+                    tipo_data = parse_json(ask_claude(
+                        pdf_to_content(cb, 'DOCUMENTO PLAN IOMA') + [{"type":"text","text":"Este documento es un Resumen de Facturación del Colegio con tabla de múltiples planes, O es una carátula individual de un solo plan IOMA. Respondé SOLO: {\"tipo\":\"resumen_colegio\"} o {\"tipo\":\"caratula_individual\"}"}],
+                        SYSTEM_JSON))
+                    if tipo_data.get('tipo') == 'resumen_colegio':
+                        planes_lista = parse_json(ask_claude(
+                            pdf_to_content(cb, 'RESUMEN COLEGIO IOMA') + [{"type":"text","text":"Extraé cada fila de la tabla de planes. Para cada plan: importe100=Imp.Total, ac_instituto=Imp.Os. Respondé: {\"planes\":[{\"plan\":\"nombre del convenio/plan\",\"recetas\":0,\"importe100\":0.0,\"ac_instituto\":0.0}]}"}],
+                            SYSTEM_JSON))
+                        for p in planes_lista.get('planes', []):
+                            plan_name = p.get('plan','').upper()
+                            entry = {'recetas':p['recetas'],'importe100':p['importe100'],'ac_instituto':p['ac_instituto']}
+                            if 'MAMI' in plan_name: planes_data['MAMI'] = entry
+                            elif 'MAYOR' in plan_name: planes_data['MAYOR COBERTURA'] = entry
+                            elif 'AMPARO' in plan_name: planes_data['RECURSOS DE AMPARO'] = entry
+                            elif 'DIRECTORIO' in plan_name: planes_data['RESOLUCIÓN DE DIRECTORIO'] = entry
+                            elif 'VACUNA' in plan_name: planes_data['VACUNAS'] = entry
+                    else:
+                        pd_data = parse_json(ask_claude(
+                            pdf_to_content(cb, 'CARÁTULA PLAN IOMA') + [{"type":"text","text":"Leer Convenio/Plan para identificar el plan. Extraé: {\"plan\":\"nombre del plan\",\"recetas\":0,\"importe100\":0.0,\"ac_instituto\":0.0}"}],
+                            SYSTEM_JSON))
+                        plan_name = pd_data.get('plan','').upper()
+                        entry = {'recetas':pd_data['recetas'],'importe100':pd_data['importe100'],'ac_instituto':pd_data['ac_instituto']}
+                        if 'MAMI' in plan_name: planes_data['MAMI'] = entry
+                        elif 'MAYOR' in plan_name: planes_data['MAYOR COBERTURA'] = entry
+                        elif 'AMPARO' in plan_name: planes_data['RECURSOS DE AMPARO'] = entry
+                        elif 'DIRECTORIO' in plan_name: planes_data['RESOLUCIÓN DE DIRECTORIO'] = entry
+                        elif 'VACUNA' in plan_name: planes_data['VACUNAS'] = entry
+
+                opf_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(opf_file), 'OPF IOMA') + [{"type":"text","text":"Efvo.IOMA AMBULATORIO = anticipo. Sección RETENCIONES línea RGI = ing_brutos_anticipo. Extraé: {\"efvo_ioma\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":0,\"ing_brutos_anticipo\":0.0}"}],
+                    SYSTEM_JSON))
+                pre_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pre_file), 'PRE IOMA') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"nrf_ant\":0.0,\"nrf_def\":0.0,\"nrf_directas\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}"}],
+                    SYSTEM_JSON))
+                pago_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pago_file), 'PAGO FINAL IOMA') + [{"type":"text","text":"Sección RETENCIONES línea RGI = ing_brutos_pago. Extraé: {\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0,\"ing_brutos_pago\":0.0}"}],
+                    SYSTEM_JSON))
+
+                nr_data = {'nr_por_fecha':[]}
+                if nr_file:
+                    nr_text = xls_to_text(read_file(nr_file), os.path.basename(nr_file))
+                    nr_data = parse_json(ask_claude(
+                        [{"type":"text","text":f"NOTAS DE RECUPERO IOMA:\n{nr_text}\n\nSumá NRF y NRFD agrupados por fecha de Impresion. Extraé: {{\"nr_por_fecha\":[{{\"fecha\":\"DD/MM/YYYY\",\"monto\":0.0}}]}}"}],
+                        SYSTEM_JSON))
+
+                buf = build_ioma_excel(
+                    {'planes':planes_data,'opf':opf_data,'pre':pre_data,'pago':pago_data,'nr':nr_data,'fecha_cierre':agudo_data['fecha_cierre']},
+                    mes_num, anio[-2:])
+                reportes.append((f"{anio[-2:]}.{mes_num} - Reporte IOMA.xlsx", buf.getvalue()))
+            except Exception as e:
+                errores.append(f"Error en {rel}: {str(e)}")
+
+        if not reportes:
+            raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
+        with zipfile.ZipFile(output_zip, 'w') as zout:
+            for filename, data in reportes:
+                zout.writestr(filename, data)
+            if errores:
+                zout.writestr("errores.txt", "\n".join(errores))
+
+    output_zip.seek(0)
+    return StreamingResponse(output_zip, media_type='application/zip',
+                             headers={'Content-Disposition': 'attachment; filename="Reportes_IOMA.zip"'})
+
+
+@app.post("/batch/osde")
+async def batch_osde(zip_file: UploadFile = File(...)):
+    zip_bytes = await zip_file.read()
+    output_zip = io.BytesIO()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            z.extractall(tmpdir)
+
+        reportes = []; errores = []
+        meses_map = {'Enero':'01','Febrero':'02','Marzo':'03','Abril':'04','Mayo':'05','Junio':'06','Julio':'07','Agosto':'08','Septiembre':'09','Octubre':'10','Noviembre':'11','Diciembre':'12'}
+
+        for root, dirs, files in os.walk(tmpdir):
+            rel = os.path.relpath(root, tmpdir).replace('\\','/')
+            parts = rel.split('/')
+            if not any(m in rel for m in meses_map.keys()): continue
+            if not any(os.path.isdir(os.path.join(root, d)) for d in os.listdir(root)): continue
+
+            all_files = [os.path.join(root, f) for f in os.listdir(root) if os.path.isfile(os.path.join(root, f))]
+            subdirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+            liq_dir = next((d for d in subdirs if 'liquidac' in os.path.basename(d).lower()), None)
+            if not liq_dir: continue
+
+            liq_files = [os.path.join(liq_dir, f) for f in os.listdir(liq_dir)]
+            nr_file = find_file(all_files, 'notas', 'recupero')
+            car_file = find_file(liq_files, 'cierre', 'caratula', 'carátula')
+            pre_file = find_file(liq_files, 'pre')
+            pago_file = find_file(liq_files, 'pago')
+
+            if not all([car_file, pre_file, pago_file]):
+                errores.append(f"Faltan archivos en: {rel}"); continue
+
+            anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
+            mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
+            if not anio_part or not mes_part:
+                errores.append(f"No se pudo determinar mes/año en: {rel}"); continue
+            mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
+            anio = anio_part
+
+            try:
+                car_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(car_file), 'CARÁTULA OSDE') + [{"type":"text","text":"Extraé: {\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"afiliado\":0.0,\"a_cargo_osde\":0.0,\"bonificacion\":0.0,\"total_verificar\":0.0}"}],
+                    SYSTEM_JSON))
+                pre_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pre_file), 'PRE OSDE') + [{"type":"text","text":"La tabla tiene columnas: Concepto, Base Cálculo, Créditos, Débitos. REGLAS: 1) Para retencion_fdo_res, ret_col_art12 y notas_credito tomá SIEMPRE el valor de la columna Débitos, NO la Base de Cálculo. 2) Para ajuste_facturacion: puede haber varias líneas de Ajuste Facturación. Identificá pares que se cancelan entre sí (mismo monto, uno en Débitos y otro en Créditos) y excluílos. El ajuste_facturacion es el monto de la línea que NO tiene contraparte que la cancele (si es débito es positivo, si es crédito es negativo). Si no hay ajuste real, ajuste_facturacion=0. 3) neto_cobrar = fila Neto a Cobrar columna Créditos. Extraé: {\"nro_liquidacion\":0,\"ajuste_facturacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"notas_credito\":0.0,\"neto_cobrar\":0.0}"}],
+                    SYSTEM_JSON))
+                pago_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pago_file), 'PAGO FINAL OSDE') + [{"type":"text","text":f"La fecha_pago es la fecha del ENCABEZADO del documento (campo Fecha:), NO la fecha de presentación de la tabla. El nro_comprobante_pago es el número de Orden de Pago del encabezado. Confirmar que existe línea OSDE con liquidación nro {pre_data.get('nro_liquidacion','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0}}"}],
+                    SYSTEM_JSON))
+                nr_data = {'nr_monto':0.0,'nr_fecha':'01/01/2000'}
+                if nr_file:
+                    nr_data = parse_json(ask_claude(
+                        pdf_to_content(read_file(nr_file), 'NOTA DE CRÉDITO DEL SUD') + [{"type":"text","text":"Tomar el TOTAL del documento. Extraé: {\"nr_monto\":0.0,\"nr_fecha\":\"DD/MM/YYYY\"}"}],
+                        SYSTEM_JSON))
+
+                buf = build_osde_excel({'caratula':car_data,'pre':pre_data,'pago':pago_data,'nr':nr_data}, mes_num, anio[-2:])
+                reportes.append((f"{anio[-2:]}.{mes_num} - Reporte OSDE.xlsx", buf.getvalue()))
+            except Exception as e:
+                errores.append(f"Error en {rel}: {str(e)}")
+
+        if not reportes:
+            raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
+        with zipfile.ZipFile(output_zip, 'w') as zout:
+            for filename, data in reportes:
+                zout.writestr(filename, data)
+            if errores:
+                zout.writestr("errores.txt", "\n".join(errores))
+
+    output_zip.seek(0)
+    return StreamingResponse(output_zip, media_type='application/zip',
+                             headers={'Content-Disposition': 'attachment; filename="Reportes_OSDE.zip"'})
+
+
+@app.post("/batch/ospecon")
+async def batch_ospecon(zip_file: UploadFile = File(...)):
+    zip_bytes = await zip_file.read()
+    output_zip = io.BytesIO()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            z.extractall(tmpdir)
+
+        reportes = []; errores = []
+        meses_map = {'Enero':'01','Febrero':'02','Marzo':'03','Abril':'04','Mayo':'05','Junio':'06','Julio':'07','Agosto':'08','Septiembre':'09','Octubre':'10','Noviembre':'11','Diciembre':'12'}
+
+        for root, dirs, files in os.walk(tmpdir):
+            rel = os.path.relpath(root, tmpdir).replace('\\','/')
+            parts = rel.split('/')
+            if not any(m in rel for m in meses_map.keys()): continue
+            if not any(os.path.isdir(os.path.join(root, d)) for d in os.listdir(root)): continue
+
+            all_files = [os.path.join(root, f) for f in os.listdir(root) if os.path.isfile(os.path.join(root, f))]
+            subdirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+            liq_dir = next((d for d in subdirs if 'liquidac' in os.path.basename(d).lower()), None)
+            if not liq_dir: continue
+
+            car_files = [f for f in all_files if 'caratula' in os.path.basename(f).lower() or 'carátula' in os.path.basename(f).lower()]
+            liq_files = [os.path.join(liq_dir, f) for f in os.listdir(liq_dir)]
+            pre_file = find_file(liq_files, 'pre')
+            pago_file = find_file(liq_files, 'pago')
+
+            if not all([car_files, pre_file, pago_file]):
+                errores.append(f"Faltan archivos en: {rel}"); continue
+
+            anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
+            mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
+            if not anio_part or not mes_part:
+                errores.append(f"No se pudo determinar mes/año en: {rel}"); continue
+            mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
+            anio = anio_part
+
+            try:
+                car_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(car_files[0]), 'CARÁTULA OSPECON') + [{"type":"text","text":"La fecha_cierre es la \"Fecha de generación\", NO la \"Fecha de Proceso\". Extraé: {\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+                    SYSTEM_JSON))
+                pre_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pre_file), 'PRE OSPECON') + [{"type":"text","text":"Columnas: Concepto, Base Cálculo, Créditos, Débitos. Para bonificacion, retencion_fdo_res y ret_col_art12 tomá SIEMPRE la columna Débitos. Para ajuste_facturacion: identificá pares que se cancelan entre sí y excluílos, el ajuste_facturacion es el monto de la línea sin contraparte (positivo si débito, negativo si crédito), 0 si no hay. neto_cobrar = fila Neto a Cobrar columna Créditos. Extraé: {\"nro_liquidacion\":0,\"ajuste_facturacion\":0.0,\"bonificacion\":0.0,\"retencion_fdo_res\":0.0,\"ret_col_art12\":0.0,\"neto_cobrar\":0.0}"}],
+                    SYSTEM_JSON))
+                pago_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pago_file), 'PAGO FINAL OSPECON') + [{"type":"text","text":f"La fecha_pago es la fecha del ENCABEZADO del documento (campo Fecha:). El nro_comprobante_pago es el número de Orden de Pago del encabezado. Confirmar línea OSPECON con liquidación nro {pre_data.get('nro_liquidacion','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0}}"}],
+                    SYSTEM_JSON))
+
+                buf = build_ospecon_excel({'caratula':car_data,'pre':pre_data,'pago':pago_data}, mes_num, anio[-2:])
+                reportes.append((f"{anio[-2:]}.{mes_num} - Reporte OSPECON.xlsx", buf.getvalue()))
+            except Exception as e:
+                errores.append(f"Error en {rel}: {str(e)}")
+
+        if not reportes:
+            raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
+        with zipfile.ZipFile(output_zip, 'w') as zout:
+            for filename, data in reportes:
+                zout.writestr(filename, data)
+            if errores:
+                zout.writestr("errores.txt", "\n".join(errores))
+
+    output_zip.seek(0)
+    return StreamingResponse(output_zip, media_type='application/zip',
+                             headers={'Content-Disposition': 'attachment; filename="Reportes_OSPECON.zip"'})
+
+
+@app.post("/batch/osprera")
+async def batch_osprera(zip_file: UploadFile = File(...)):
+    zip_bytes = await zip_file.read()
+    output_zip = io.BytesIO()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            z.extractall(tmpdir)
+
+        reportes = []; errores = []
+        meses_map = {'Enero':'01','Febrero':'02','Marzo':'03','Abril':'04','Mayo':'05','Junio':'06','Julio':'07','Agosto':'08','Septiembre':'09','Octubre':'10','Noviembre':'11','Diciembre':'12'}
+
+        for root, dirs, files in os.walk(tmpdir):
+            rel = os.path.relpath(root, tmpdir).replace('\\','/')
+            parts = rel.split('/')
+            if not any(m in rel for m in meses_map.keys()): continue
+
+            all_files = [os.path.join(root, f) for f in os.listdir(root) if os.path.isfile(os.path.join(root, f))]
+            subdirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+
+            anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
+            mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
+            if not anio_part or not mes_part: continue
+            mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
+            anio = anio_part
+
+            # Detectar si tiene quincena
+            con_quincena = any('1Q' in p or '2Q' in p for p in parts)
+            quincena_val = next((p for p in parts if '1Q' in p or '2Q' in p), None)
+            if quincena_val:
+                quincena_val = '1Q' if '1Q' in quincena_val else '2Q'
+
+            liq_dir = next((d for d in subdirs if 'liquidac' in os.path.basename(d).lower()), None)
+            car_dir = next((d for d in subdirs if 'caratula' in os.path.basename(d).lower() or 'carátula' in os.path.basename(d).lower()), None)
+
+            if con_quincena:
+                # Archivos sueltos en la carpeta
+                car_files = [f for f in all_files if any(x in os.path.basename(f).lower() for x in ['caratula','carátula'])]
+                nr_file = find_file(all_files, 'notas', 'recupero', '.xls')
+            else:
+                car_files = sorted([os.path.join(car_dir, f) for f in os.listdir(car_dir)]) if car_dir else []
+                nr_file = None
+
+            if not liq_dir or not car_files: continue
+            liq_files = [os.path.join(liq_dir, f) for f in os.listdir(liq_dir)]
+            pre_file = find_file(liq_files, 'pre')
+            pago_file = find_file(liq_files, 'pago')
+            if not all([pre_file, pago_file]): continue
+
+            try:
+                planes_data = {'GENERAL':{'recetas':0,'importe100':0.0,'ac_os':0.0},'TRATAMIENTO PROLONGADO':{'recetas':0,'importe100':0.0,'ac_os':0.0},'MONOTRIBUTISTAS':{'recetas':0,'importe100':0.0,'ac_os':0.0},'RURAL':{'recetas':0,'importe100':0.0,'ac_os':0.0},'DECLARACIÓN DE DISPENSA':{'recetas':0,'importe100':0.0,'ac_os':0.0}}
+                fecha_cierre = None
+                for cp in car_files:
+                    car_data = parse_json(ask_claude(
+                        pdf_to_content(read_file(cp), 'CARÁTULA OSPRERA') + [{"type":"text","text":"Identificar el plan exacto leyendo el campo Convenio/Plan. La fecha_cierre es la \"Fecha de generación\", NO la \"Fecha de Proceso\". Extraé: {\"plan\":\"nombre completo del convenio/plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+                        SYSTEM_JSON))
+                    if not fecha_cierre: fecha_cierre = car_data.get('fecha_cierre')
+                    pn = car_data.get('plan','').upper()
+                    k = 'MONOTRIBUTISTAS' if 'MONOT' in pn else 'RURAL' if 'RURAL' in pn else 'PROLONGADO' if 'PROLONGADO' in pn else 'DECLARACIÓN DE DISPENSA' if 'DISPENSA' in pn else 'GENERAL'
+                    planes_data[k]['recetas'] += car_data.get('nro_recetas',0)
+                    planes_data[k]['importe100'] += car_data.get('importe_total',0.0)
+                    planes_data[k]['ac_os'] += car_data.get('ac_os',0.0)
+
+                nr_data = None
+                if con_quincena and nr_file:
+                    nr_text = xls_to_text(read_file(nr_file), os.path.basename(nr_file))
+                    nr_data = parse_json(ask_claude(
+                        [{"type":"text","text":f"NOTAS DE RECUPERO OSPRERA:\n{nr_text}\n\nSumá NRF y NRFD agrupados por fecha. Extraé: {{\"nr_por_fecha\":[{{\"fecha\":\"DD/MM/YYYY\",\"monto\":0.0}}]}}"}],
+                        SYSTEM_JSON))
+
+                pre_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pre_file), 'PRE OSPRERA') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"notas_credito\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito). bonificaciones = BONIFICACIONES. notas_credito = NOTAS DE CREDITO. fdo_prest_colfarma = FDO PREST COLFARMA. total_liquidacion = Total liquidación."}],
+                    SYSTEM_JSON))
+                pago_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pago_file), 'PAGO FINAL OSPRERA') + [{"type":"text","text":f"La fecha_pago es la Fecha del encabezado del documento. El nro_comprobante_pago es el número de Comprobante del encabezado. Confirmar que existe línea OSPRERA con comprobante {pre_data.get('nro_comprobante','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":\"\"}}"}],
+                    SYSTEM_JSON))
+
+                q_str = f".{quincena_val}" if con_quincena and quincena_val else ""
+                buf = build_osprera_excel(
+                    {'planes':planes_data,'pre':pre_data,'pago':pago_data,'fecha_cierre':fecha_cierre,'opf':None,'nr':nr_data,'con_quincena':con_quincena,'quincena':quincena_val},
+                    mes_num, anio[-2:])
+                reportes.append((f"{anio[-2:]}.{mes_num}{q_str} - Reporte OSPRERA.xlsx", buf.getvalue()))
+            except Exception as e:
+                errores.append(f"Error en {rel}: {str(e)}")
+
+        if not reportes:
+            raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
+        with zipfile.ZipFile(output_zip, 'w') as zout:
+            for filename, data in reportes:
+                zout.writestr(filename, data)
+            if errores:
+                zout.writestr("errores.txt", "\n".join(errores))
+
+    output_zip.seek(0)
+    return StreamingResponse(output_zip, media_type='application/zip',
+                             headers={'Content-Disposition': 'attachment; filename="Reportes_OSPRERA.zip"'})
+
+
+@app.post("/batch/unionpersonal")
+async def batch_unionpersonal(zip_file: UploadFile = File(...)):
+    zip_bytes = await zip_file.read()
+    output_zip = io.BytesIO()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            z.extractall(tmpdir)
+
+        reportes = []; errores = []
+        meses_map = {'Enero':'01','Febrero':'02','Marzo':'03','Abril':'04','Mayo':'05','Junio':'06','Julio':'07','Agosto':'08','Septiembre':'09','Octubre':'10','Noviembre':'11','Diciembre':'12'}
+
+        for root, dirs, files in os.walk(tmpdir):
+            rel = os.path.relpath(root, tmpdir).replace('\\','/')
+            parts = rel.split('/')
+            if not any(m in rel for m in meses_map.keys()): continue
+            if not any(os.path.isdir(os.path.join(root, d)) for d in os.listdir(root)): continue
+
+            subdirs = [os.path.join(root, d) for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))]
+            car_dir = next((d for d in subdirs if 'caratula' in os.path.basename(d).lower() or 'carátula' in os.path.basename(d).lower()), None)
+            liq_dir = next((d for d in subdirs if 'liquidac' in os.path.basename(d).lower()), None)
+            if not car_dir or not liq_dir: continue
+
+            car_files = sorted([os.path.join(car_dir, f) for f in os.listdir(car_dir) if f.endswith('.pdf')])
+            liq_files = [os.path.join(liq_dir, f) for f in os.listdir(liq_dir)]
+            opf_file = find_file(liq_files, 'opf')
+            pre_file = find_file(liq_files, 'pre')
+            pago_file = find_file(liq_files, 'pago')
+
+            if not all([car_files, opf_file, pre_file, pago_file]):
+                errores.append(f"Faltan archivos en: {rel}"); continue
+
+            anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
+            mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
+            if not anio_part or not mes_part: continue
+            mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
+            anio = anio_part
+
+            try:
+                planes_data = {'PLANES VARIOS':{'recetas':0,'importe100':0.0,'ac_os':0.0},'DECLARACIÓN DE DISPENSA':{'recetas':0,'importe100':0.0,'ac_os':0.0}}
+                fecha_cierre = None
+                for cp in car_files:
+                    car_data = parse_json(ask_claude(
+                        pdf_to_content(read_file(cp), 'CARÁTULA UNIÓN PERSONAL') + [{"type":"text","text":"Identificar el plan: Planes Varios o Declaracion de dispensa. La fecha_cierre es la \"Fecha de generación\", NO la \"Fecha de Proceso\". Extraé: {\"plan\":\"nombre del plan\",\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"importe_total\":0.0,\"ac_os\":0.0}"}],
+                        SYSTEM_JSON))
+                    if not fecha_cierre: fecha_cierre = car_data.get('fecha_cierre')
+                    key = 'DECLARACIÓN DE DISPENSA' if 'DISPENSA' in car_data.get('plan','').upper() else 'PLANES VARIOS'
+                    planes_data[key]['recetas'] += car_data.get('nro_recetas',0)
+                    planes_data[key]['importe100'] += car_data.get('importe_total',0.0)
+                    planes_data[key]['ac_os'] += car_data.get('ac_os',0.0)
+
+                opf_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(opf_file), 'OPF UNIÓN PERSONAL') + [{"type":"text","text":"Buscar línea UNION PERSONAL (SIFAR) con descripción que empiece con Efvo. La fecha_opf es la Fecha del encabezado. El nro_comprobante_opf es el Comprobante del encabezado. Extraé: {\"efvo_up\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":\"\"}"}],
+                    SYSTEM_JSON))
+                pre_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pre_file), 'PRE UNIÓN PERSONAL') + [{"type":"text","text":"Extraé: {\"fecha_presentacion\":\"DD/MM/YYYY\",\"nro_comprobante\":0,\"deb_cred_os\":0.0,\"bonificaciones\":0.0,\"fdo_prest_colfarma\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. deb_cred_os = DEB/CRED DE OBRA SOCIAL (negativo si es débito, 0 si no aparece). bonificaciones=BONIFICACIONES, fdo_prest_colfarma=FDO PREST COLFARMA, total_liquidacion=Total liquidación."}],
+                    SYSTEM_JSON))
+                pago_data = parse_json(ask_claude(
+                    pdf_to_content(read_file(pago_file), 'PAGO FINAL UNIÓN PERSONAL') + [{"type":"text","text":f"La fecha_pago es la Fecha del encabezado. El nro_comprobante_pago es el Comprobante del encabezado. Buscar línea UNION PERSONAL con liquidación nro {pre_data.get('nro_comprobante','')}. Extraé: {{\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":\"\"}}"}],
+                    SYSTEM_JSON))
+
+                buf = build_unionpersonal_excel(
+                    {'planes':planes_data,'opf':opf_data,'pre':pre_data,'pago':pago_data,'fecha_cierre':fecha_cierre},
+                    mes_num, anio[-2:])
+                reportes.append((f"{anio[-2:]}.{mes_num} - Reporte Union Personal.xlsx", buf.getvalue()))
+            except Exception as e:
+                errores.append(f"Error en {rel}: {str(e)}")
+
+        if not reportes:
+            raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
+        with zipfile.ZipFile(output_zip, 'w') as zout:
+            for filename, data in reportes:
+                zout.writestr(filename, data)
+            if errores:
+                zout.writestr("errores.txt", "\n".join(errores))
+
+    output_zip.seek(0)
+    return StreamingResponse(output_zip, media_type='application/zip',
+                             headers={'Content-Disposition': 'attachment; filename="Reportes_UP.zip"'})
