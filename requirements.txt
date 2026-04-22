@@ -7,5 +7,3 @@ python-multipart==0.0.20
 httpx==0.28.1
 xlrd==2.0.1
 beautifulsoup4==4.12.3
-playwright==1.49.0
-greenlet==3.1.1

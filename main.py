@@ -13,24 +13,9 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 import base64
 import json
 from bs4 import BeautifulSoup
-import httpx
 import re as _re
 
 app = FastAPI()
-
-import subprocess as _subprocess
-import sys as _sys
-
-# Instalar Chromium de Playwright al arrancar si no está disponible
-try:
-    _subprocess.run(
-        [_sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"],
-        check=True, capture_output=True
-    )
-    print("Chromium instalado correctamente")
-except Exception as _e:
-    print(f"Warning: no se pudo instalar Chromium: {_e}")
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -2220,175 +2205,102 @@ def build_reporte_anual(reportes_data, os_nombre, anio):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DÉBITOS PAMI — Scraper + Análisis con IA
+# DÉBITOS PAMI — Scraper con cookie de sesión + Análisis IA
 # ══════════════════════════════════════════════════════════════════════════════
 
-COFA_LOGIN_URL   = "https://principal.cofa.org.ar/"
 COFA_RESUMEN_URL = "https://ncr.cofa.org.ar/tablero/resumen/"
 COFA_AJUSTES_URL = "https://ncr.cofa.org.ar/tablero/resumen/Ajustes/"
 
-async def cofa_scrape(farmacia: str, clave: str, periodo: str) -> list[dict]:
-    """
-    Usa Playwright para hacer login en COFA y extraer débitos.
-    """
-    from playwright.async_api import async_playwright
-    import traceback
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-        page = await context.new_page()
+async def cofa_get_ajustes(session_cookie: str, periodo: str) -> list[dict]:
+    """Usa la cookie de sesión para obtener los débitos del período."""
+    headers = {
+        "Cookie": f"ASPSESSIONIDQETCCSSC={session_cookie}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30, headers=headers) as cofa:
+        resp = await cofa.post(COFA_RESUMEN_URL, data={"PeriodoX": periodo})
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Error al cargar período: {resp.status_code}")
+        if "servicios.cofa.org.ar" in str(resp.url) or resp.url.path.rstrip("/").endswith("ncr"):
+            raise HTTPException(status_code=401, detail="Sesión expirada. Por favor hacé login nuevamente en COFA.")
 
-        try:
-            # 1. Login
-            print(f"[COFA] Paso 1: navegando a {COFA_LOGIN_URL}")
-            await page.goto(COFA_LOGIN_URL, wait_until="networkidle")
-            print(f"[COFA] Paso 2: URL actual: {page.url}")
-            await page.locator("input[name=Farmacia]").fill(farmacia)
-            await page.locator("input[name=Clave]").fill(clave)
-            await page.wait_for_timeout(3000)
-            print("[COFA] Paso 3: ejecutando recaptcha")
-            sitekey = "6LeMGnkUAAAAAGwmr1orFWBA0JlPgdo57-1YOZRN"
-            js_rc = ("grecaptcha.ready(function(){" +
-                     "grecaptcha.execute('" + sitekey + "',{action:'submit'})" +
-                     ".then(function(t){" +
-                     "var i=document.querySelector('input[name=recaptcha_response]');" +
-                     "if(i)i.value=t;});});")
-            await page.evaluate(js_rc)
-            await page.wait_for_timeout(3000)
-            print("[COFA] Paso 4: haciendo submit")
-            await page.locator("input[name=B1]").click()
-            await page.wait_for_load_state("networkidle")
-            print(f"[COFA] Paso 5: URL post-login: {page.url}")
-            # Verificar login exitoso
-            if "Farmacias" not in page.url and "tablero" not in page.url and "ncr.cofa" not in page.url:
-                # Navegar directo al tablero
-                await page.goto("https://principal.cofa.org.ar/Farmacias/", wait_until="networkidle")
-                if "Farmacias" not in page.url:
-                    raise HTTPException(status_code=401, detail="Credenciales incorrectas o reCAPTCHA falló")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        ajuste_links = []
+        monto_total = 0.0
 
-            # 2. Ir al tablero de PAMI
-            await page.goto("https://ncr.cofa.org.ar/tablero/resumen/", wait_until="networkidle")
+        for row in soup.find_all("tr"):
+            cells = row.find_all("td")
+            if not cells:
+                continue
+            row_text = " ".join(c.get_text(strip=True) for c in cells)
+            if "AJUSTE" in row_text.upper() and "DEBITO" in row_text.upper():
+                for u_tag in row.find_all("u"):
+                    link_text = u_tag.get_text(strip=True)
+                    if _re.match(r"^\dQ\d{4}$", link_text):
+                        ajuste_links.append(link_text)
+                for cell in cells:
+                    txt = cell.get_text(strip=True).replace(".", "").replace(",", ".")
+                    try:
+                        val = float(txt)
+                        if val > 0:
+                            monto_total += val
+                            break
+                    except ValueError:
+                        continue
 
-            # 3. Seleccionar período via JavaScript (igual que en el browser)
-            await page.evaluate(f"""
-                const sel = document.querySelector('select');
-                if (sel) {{
-                    sel.value = '{periodo}';
-                    sel.dispatchEvent(new Event('change', {{bubbles: true}}));
-                }}
-            """)
-            await page.wait_for_timeout(2000)
+        if not ajuste_links:
+            return []
 
-            # 4. Extraer ajustes del HTML del iframe
-            iframe_src = await page.evaluate("document.querySelector('iframe[name=frameC]')?.src || ''")
+        ajustes = []
+        for link_id in ajuste_links:
+            archivos = await cofa_get_archivos_ajuste(cofa, periodo, link_id)
+            monto_ajuste = monto_total / len(ajuste_links) if len(ajuste_links) > 1 else monto_total
+            ajustes.append({"id": link_id, "monto": round(monto_ajuste, 2), "archivos": archivos})
 
-            # Leer el HTML de la página principal (tabla con AJUSTE/DEBITO)
-            html_resumen = await page.content()
-            soup = BeautifulSoup(html_resumen, "html.parser")
-
-            ajuste_links = []
-            monto_total = 0.0
-
-            for row in soup.find_all("tr"):
-                cells = row.find_all("td")
-                if not cells:
-                    continue
-                row_text = " ".join(c.get_text(strip=True) for c in cells)
-                if "AJUSTE" in row_text.upper() and "DEBITO" in row_text.upper():
-                    for u_tag in row.find_all("u"):
-                        link_text = u_tag.get_text(strip=True)
-                        if _re.match(r"^\dQ\d{4}$", link_text):
-                            ajuste_links.append(link_text)
-                    for cell in cells:
-                        txt = cell.get_text(strip=True).replace(".", "").replace(",", ".")
-                        try:
-                            val = float(txt)
-                            if val > 0:
-                                monto_total += val
-                                break
-                        except ValueError:
-                            continue
-
-            if not ajuste_links:
-                return []
-
-            # 5. Por cada ajuste, clickear el link y leer el iframe
-            ajustes = []
-            for link_id in ajuste_links:
-                # Clickear el link del ajuste
-                try:
-                    await page.evaluate(f"""
-                        const els = Array.from(document.querySelectorAll('u'));
-                        const el = els.find(e => e.textContent.trim() === '{link_id}');
-                        if (el) el.click();
-                    """)
-                    await page.wait_for_timeout(2000)
-
-                    # Leer el iframe de ajustes
-                    iframe = page.frame(name="frameC")
-                    if iframe:
-                        html_ajuste = await iframe.content()
-                        soup_aj = BeautifulSoup(html_ajuste, "html.parser")
-                        archivos = []
-                        for row in soup_aj.find_all("tr"):
-                            cells = row.find_all("td")
-                            if len(cells) < 4:
-                                continue
-                            nombre_raw = cells[1].get_text(strip=True)
-                            nota = cells[3].get_text(strip=True)
-                            if not nombre_raw.endswith(".png"):
-                                continue
-                            nombre_base = _re.sub(r"_00[12]\.png$", "", nombre_raw)
-                            if nombre_base and not any(a["nombre"] == nombre_base for a in archivos):
-                                # Obtener URL de la imagen desde el link
-                                img_link = cells[0].find("a")
-                                img_url = img_link["href"] if img_link and img_link.get("href") else ""
-                                archivos.append({"nombre": nombre_base, "nota": nota, "img_url": img_url})
-                    else:
-                        archivos = []
-                except Exception:
-                    archivos = []
-
-                monto_ajuste = monto_total / len(ajuste_links) if len(ajuste_links) > 1 else monto_total
-                ajustes.append({"id": link_id, "monto": round(monto_ajuste, 2), "archivos": archivos})
-
-            return ajustes
-
-        finally:
-            await browser.close()
+        return ajustes
 
 
-async def cofa_descargar_imagen_playwright(farmacia: str, clave: str, periodo: str, img_url: str) -> bytes | None:
-    """Descarga una imagen usando Playwright (mantiene sesión activa)."""
-    from playwright.async_api import async_playwright
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        context = await browser.new_context()
-        page = await context.new_page()
-        try:
-            # Login rápido
-            await page.goto(COFA_LOGIN_URL, wait_until="networkidle")
-            await page.locator("input[name=Farmacia]").fill(farmacia)
-            await page.locator("input[name=Clave]").fill(clave)
-            await page.wait_for_timeout(3000)
-            sitekey = "6LeMGnkUAAAAAGwmr1orFWBA0JlPgdo57-1YOZRN"
-            await page.evaluate(f"grecaptcha.ready(function(){{ grecaptcha.execute('{sitekey}', {{action:'submit'}}).then(function(token){{ document.querySelector('input[name=recaptcha_response]').value=token; }}); }});")
-            await page.wait_for_timeout(3000)
-            await page.locator("input[name=B1]").click()
-            await page.wait_for_load_state("networkidle")
-            # Descargar imagen
-            response = await page.request.get(img_url)
-            if response.ok:
-                return await response.body()
-            return None
-        finally:
-            await browser.close()
+async def cofa_get_archivos_ajuste(cofa: httpx.AsyncClient, periodo: str, ajuste_id: str) -> list[dict]:
+    """Obtiene los archivos PNG de un ajuste específico."""
+    resp = await cofa.get(COFA_AJUSTES_URL, params={"ID": ajuste_id})
+    if resp.status_code != 200 or not resp.text.strip():
+        resp = await cofa.post(COFA_AJUSTES_URL, data={"IDajuste": ajuste_id, "PeriodoX": periodo})
+    if resp.status_code != 200 or not resp.text.strip():
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    archivos = []
+    for row in soup.find_all("tr"):
+        cells = row.find_all("td")
+        if len(cells) < 4:
+            continue
+        nombre_raw = cells[1].get_text(strip=True)
+        nota = cells[3].get_text(strip=True)
+        if not nombre_raw.endswith(".png"):
+            continue
+        nombre_base = _re.sub(r"_00[12]\.png$", "", nombre_raw)
+        if nombre_base and not any(a["nombre"] == nombre_base for a in archivos):
+            archivos.append({"nombre": nombre_base, "nota": nota})
+    return archivos
 
 
-SYSTEM_DEBITOS = 'CRÍTICO: Respondé ÚNICAMENTE con el objeto JSON solicitado. Sin texto, sin explicaciones, sin markdown. Empezá con { y terminá con }.'
+async def cofa_descargar_imagen(session_cookie: str, nombre_archivo: str) -> bytes | None:
+    """Descarga una imagen de receta usando la cookie de sesión."""
+    headers = {
+        "Cookie": f"ASPSESSIONIDQETCCSSC={session_cookie}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30, headers=headers) as cofa:
+        url = f"{COFA_AJUSTES_URL}img/{nombre_archivo}"
+        resp = await cofa.get(url)
+        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("image"):
+            return resp.content
+    return None
+
+
+SYSTEM_DEBITOS = "CRÍTICO: Respondé ÚNICAMENTE con el objeto JSON solicitado. Sin texto, sin explicaciones, sin markdown. Empezá con { y terminá con }."
+
 
 async def generar_resumen_ia_debitos(ajustes: list[dict]) -> dict:
     """Genera un resumen ejecutivo con recomendaciones basado en los patrones de error."""
@@ -2403,27 +2315,19 @@ async def generar_resumen_ia_debitos(ajustes: list[dict]) -> dict:
     if total_recetas == 0:
         return {"conclusion_principal": "No se encontraron recetas debitadas", "recomendaciones": []}
 
-    errores_texto = "\n".join(
+    errores_lista = sorted(errores.items(), key=lambda x: x[1], reverse=True)
+    errores_texto = chr(10).join(
         f"- {nota}: {count} recetas ({round(count/total_recetas*100)}%)"
-        for nota, count in sorted(errores.items(), key=lambda x: x[1], reverse=True)
+        for nota, count in errores_lista
     )
 
-    prompt = f"""Analizá los siguientes débitos de PAMI de una farmacia argentina:
-Total de recetas debitadas: {total_recetas}
-Distribución de errores:
-{errores_texto}
-
-Generá un análisis en JSON:
-{{
-  "conclusion_principal": "frase que resume el problema más importante",
-  "patron_dominante": "descripción del error más frecuente",
-  "recomendaciones": [
-    {{"prioridad": "alta", "accion": "acción concreta", "detalle": "explicación"}},
-    {{"prioridad": "media", "accion": "acción concreta", "detalle": "explicación"}},
-    {{"prioridad": "baja", "accion": "acción concreta", "detalle": "explicación"}}
-  ],
-  "proceso_a_revisar": "área que requiere atención inmediata"
-}}"""
+    prompt = (
+        "Analizá los siguientes débitos de PAMI de una farmacia argentina:\n"
+        f"Total de recetas debitadas: {total_recetas}\n"
+        f"Distribución de errores:\n{errores_texto}\n\n"
+        "Generá un análisis en JSON con los campos: "
+        "conclusion_principal, patron_dominante, recomendaciones (lista con prioridad/accion/detalle), proceso_a_revisar"
+    )
 
     msg = client.messages.create(
         model="claude-sonnet-4-20250514",
@@ -2439,26 +2343,25 @@ Generá un análisis en JSON:
 
 @app.post("/debitos/scrape")
 async def scrape_debitos(
-    farmacia: str = Form(...),
-    clave: str = Form(...),
+    session_cookie: str = Form(...),
     periodo: str = Form(...)
 ):
     """
-    Login en COFA + extracción de débitos del período indicado.
+    Extrae débitos PAMI usando la cookie de sesión de ncr.cofa.org.ar.
+    El usuario debe hacer login manual en COFA y pasar la cookie ASPSESSIONIDQETCCSSC.
     periodo: formato "2025|11|2" (año|mes|quincena)
     """
     try:
-        ajustes = await cofa_scrape(farmacia, clave, periodo)
+        ajustes = await cofa_get_ajustes(session_cookie, periodo)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Error en scraping: {str(e)}")
 
     if not ajustes:
-        return JSONResponse({"periodo": periodo, "ajustes": [], "total_recetas": 0, "total_monto": 0,
-                             "mensaje": "No se encontraron débitos para este período"})
+        return JSONResponse({"periodo": periodo, "ajustes": [], "total_recetas": 0,
+                             "total_monto": 0, "mensaje": "No se encontraron débitos para este período"})
 
-    # Calcular estadísticas de errores
     errores: dict = {}
     total_recetas = 0
     for aj in ajustes:
@@ -2481,15 +2384,12 @@ async def scrape_debitos(
 
 @app.post("/debitos/analizar")
 async def analizar_debitos(
-    farmacia: str = Form(...),
-    clave: str = Form(...),
+    session_cookie: str = Form(...),
     periodo: str = Form(...)
 ):
-    """
-    Scraping completo + resumen ejecutivo con recomendaciones generado por IA.
-    """
+    """Scraping completo + resumen ejecutivo con recomendaciones generado por IA."""
     try:
-        ajustes = await cofa_scrape(farmacia, clave, periodo)
+        ajustes = await cofa_get_ajustes(session_cookie, periodo)
     except HTTPException:
         raise
     except Exception as e:
@@ -2500,7 +2400,6 @@ async def analizar_debitos(
                              "total_monto": 0, "resumen_ia": None,
                              "mensaje": "No se encontraron débitos para este período"})
 
-    # Resumen ejecutivo con IA
     resumen = await generar_resumen_ia_debitos(ajustes)
 
     errores: dict = {}
@@ -2526,14 +2425,12 @@ async def analizar_debitos(
 
 @app.get("/debitos/imagen")
 async def obtener_imagen_receta(
-    farmacia: str,
-    clave: str,
-    periodo: str,
+    session_cookie: str,
     nombre_archivo: str
 ):
-    """Descarga y retorna una imagen de receta como base64 (llamado on-demand desde el frontend)."""
+    """Descarga y retorna una imagen de receta como base64."""
     try:
-        img_bytes = await cofa_descargar_imagen_playwright(farmacia, clave, periodo, nombre_archivo)
+        img_bytes = await cofa_descargar_imagen(session_cookie, nombre_archivo)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -2543,29 +2440,6 @@ async def obtener_imagen_receta(
     b64 = base64.standard_b64encode(img_bytes).decode()
     return JSONResponse({"nombre": nombre_archivo, "data": f"data:image/png;base64,{b64}"})
 
-
-
-
-@app.post("/debitos/debug")
-async def debug_debitos(
-    farmacia: str = Form(...),
-    clave: str = Form(...),
-    periodo: str = Form(...)
-):
-    """Debug: devuelve el HTML crudo del resumen para inspección."""
-    from fastapi.responses import PlainTextResponse
-    cofa = await cofa_login(farmacia, clave)
-    resp = await cofa.post(COFA_RESUMEN_URL, data={"PeriodoX": periodo})
-    html = resp.text
-    await cofa.aclose()
-    # Buscar todas las filas que contengan texto relevante
-    soup = BeautifulSoup(html, "html.parser")
-    rows_info = []
-    for row in soup.find_all("tr"):
-        txt = row.get_text(separator=" | ", strip=True)
-        if txt:
-            rows_info.append(txt[:200])
-    return JSONResponse({"status": resp.status_code, "url_final": str(resp.url), "filas": rows_info[:50]})
 
 
 @app.post("/reporte-anual")
