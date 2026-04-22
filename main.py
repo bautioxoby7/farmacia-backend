@@ -12,6 +12,7 @@ from openpyxl.styles import Font, Border, Side, Alignment, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 import base64
 import json
+import httpx
 from bs4 import BeautifulSoup
 import re as _re
 
