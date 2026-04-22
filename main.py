@@ -2376,21 +2376,13 @@ async def cofa_descargar_imagen_playwright(farmacia: str, clave: str, periodo: s
         try:
             # Login rápido
             await page.goto(COFA_LOGIN_URL, wait_until="networkidle")
-            await page.fill("input[name='Farmacia']", farmacia)
-            await page.fill("input[name='Clave']", clave)
-            await page.wait_for_timeout(2000)
+            await page.locator("input[name=Farmacia]").fill(farmacia)
+            await page.locator("input[name=Clave]").fill(clave)
+            await page.wait_for_timeout(3000)
             sitekey = "6LeMGnkUAAAAAGwmr1orFWBA0JlPgdo57-1YOZRN"
-            js2 = f"""
-                grecaptcha.ready(() => {{
-                    grecaptcha.execute('{sitekey}', {{action: 'submit'}})
-                        .then(token => {{
-                            document.querySelector("[name='recaptcha_response']").value = token;
-                        }});
-                }});
-            """
-            await page.evaluate(js2)
-            await page.wait_for_timeout(2000)
-            await page.click("input[name='B1']")
+            await page.evaluate(f"grecaptcha.ready(function(){{ grecaptcha.execute('{sitekey}', {{action:'submit'}}).then(function(token){{ document.querySelector('input[name=recaptcha_response]').value=token; }}); }});")
+            await page.wait_for_timeout(3000)
+            await page.locator("input[name=B1]").click()
             await page.wait_for_load_state("networkidle")
             # Descargar imagen
             response = await page.request.get(img_url)
