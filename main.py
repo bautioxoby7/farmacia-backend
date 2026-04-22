@@ -2494,6 +2494,29 @@ async def obtener_imagen_receta(
 
 
 
+
+@app.post("/debitos/debug")
+async def debug_debitos(
+    farmacia: str = Form(...),
+    clave: str = Form(...),
+    periodo: str = Form(...)
+):
+    """Debug: devuelve el HTML crudo del resumen para inspección."""
+    from fastapi.responses import PlainTextResponse
+    cofa = await cofa_login(farmacia, clave)
+    resp = await cofa.post(COFA_RESUMEN_URL, data={"PeriodoX": periodo})
+    html = resp.text
+    await cofa.aclose()
+    # Buscar todas las filas que contengan texto relevante
+    soup = BeautifulSoup(html, "html.parser")
+    rows_info = []
+    for row in soup.find_all("tr"):
+        txt = row.get_text(separator=" | ", strip=True)
+        if txt:
+            rows_info.append(txt[:200])
+    return JSONResponse({"status": resp.status_code, "url_final": str(resp.url), "filas": rows_info[:50]})
+
+
 @app.post("/reporte-anual")
 async def reporte_anual(archivos: list[UploadFile] = File(...)):
     if not archivos:
