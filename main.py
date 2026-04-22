@@ -1,6 +1,6 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import anthropic
 import io
 import os
@@ -2244,7 +2244,7 @@ async def cofa_get_ajustes(cofa: httpx.AsyncClient, periodo: str) -> list[dict]:
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"Error al cargar período {periodo}")
 
-    soup = BeautifulSoup(resp.text, "lxml")
+    soup = BeautifulSoup(resp.text, "html.parser")
     ajuste_links = []
     monto_total = 0.0
 
@@ -2290,7 +2290,7 @@ async def cofa_get_archivos_ajuste(cofa: httpx.AsyncClient, periodo: str, ajuste
     if resp.status_code != 200 or not resp.text.strip():
         return []
 
-    soup = BeautifulSoup(resp.text, "lxml")
+    soup = BeautifulSoup(resp.text, "html.parser")
     archivos = []
 
     for row in soup.find_all("tr"):
