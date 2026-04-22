@@ -2223,8 +2223,10 @@ async def cofa_get_ajustes(session_cookie: str, periodo: str) -> list[dict]:
         resp = await cofa.post(COFA_RESUMEN_URL, data={"PeriodoX": periodo})
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Error al cargar período: {resp.status_code}")
-        if "servicios.cofa.org.ar" in str(resp.url) or resp.url.path.rstrip("/").endswith("ncr"):
-            raise HTTPException(status_code=401, detail="Sesión expirada. Por favor hacé login nuevamente en COFA.")
+        # Debug: mostrar URL final para diagnosticar
+        url_final = str(resp.url)
+        if "servicios.cofa.org.ar" in url_final or (hasattr(resp.url, 'path') and resp.url.path.rstrip("/").endswith("ncr")):
+            raise HTTPException(status_code=401, detail=f"Sesión expirada. URL final: {url_final}")
 
         soup = BeautifulSoup(resp.text, "html.parser")
         ajuste_links = []
