@@ -24,7 +24,7 @@ import sys as _sys
 # Instalar Chromium de Playwright al arrancar si no está disponible
 try:
     _subprocess.run(
-        [_sys.executable, "-m", "playwright", "install", "chromium"],
+        [_sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"],
         check=True, capture_output=True
     )
     print("Chromium instalado correctamente")
