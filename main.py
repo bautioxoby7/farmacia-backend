@@ -190,9 +190,10 @@ def build_pami_excel(data, q, mes, anio):
     bonificaciones = abs(pre['bonif_ambulatorio']) + abs(pre['bonif_tiras']) + abs(pre['bonif_insulinas'])
     retenciones = abs(pre['ret_gtos_adm_cofa']) + abs(pre['retencion_colegio_art12']) + abs(pre['fdo_prest_colfarma'])
     notas_cred = abs(pre['nota_cred_ambulatorio']) + abs(pre['nota_cred_insulina']) + abs(pre['nota_cred_tiras'])
-    pct70 = car['diferencia_total'] * 0.7; pct30 = car['diferencia_total'] * 0.3
+    diferencia_total = car['total_pvp'] - car['total_pvp_pami']
+    pct70 = diferencia_total * 0.7; pct30 = diferencia_total * 0.3
     dif_nr = total_naf_nrfd - notas_cred
-    dif_efvo = EfSa - pre['efectivo_drogueria']
+    dif_efvo = EfSa - abs(pre['efectivo_drogueria'])
     dif_ccf = total_ccf_ccfd - pct70
     dias_prom = (opf['efvo_pami']*dias_ant + liq_final*dias_liq + (total_ccf_ccfd+total_naf_nrfd)*dias_nr + EfSa*dias_efsa) / total_pagado
     periodo = f'{q}/{mes}/{anio}'
@@ -256,17 +257,17 @@ def build_pami_excel(data, q, mes, anio):
     box(ws,11,5,24,6)
 
     ws.merge_cells('H12:L12'); c(ws,'H12','NOTAS DE CRÉDITO',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'I13','Monto según PRE',bold=True,halign='center'); c(ws,'K13','Monto según NR',bold=True,halign='center'); c(ws,'L13','Diferencia',bold=True,halign='center')
+    c(ws,'I13','Monto Calculado',bold=True,halign='center'); c(ws,'K13','Monto según NR',bold=True,halign='center'); c(ws,'L13','Diferencia',bold=True,halign='center')
     c(ws,'H14','Ambulatorio:'); n(ws,'I14',abs(pre['nota_cred_ambulatorio']))
     c(ws,'H15','Tiras:'); n(ws,'I15',abs(pre['nota_cred_tiras']))
     c(ws,'H16','Insulinas:'); n(ws,'I16',abs(pre['nota_cred_insulina']))
     c(ws,'H17','TOTAL',bold=True); n(ws,'I17',notas_cred); n(ws,'K17',total_naf_nrfd); n(ws,'L17',dif_nr)
     ws.merge_cells('H18:L18'); c(ws,'H18','70% / 30%',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'I19','Monto según PRE',bold=True,halign='center'); c(ws,'K19','Monto según NR',bold=True,halign='center'); c(ws,'L19','Diferencia',bold=True,halign='center')
+    c(ws,'I19','Monto Calculado',bold=True,halign='center'); c(ws,'K19','Monto según NR',bold=True,halign='center'); c(ws,'L19','Diferencia',bold=True,halign='center')
     c(ws,'H20','70% CCF/CCFD',bold=True); n(ws,'I20',pct70); n(ws,'K20',total_ccf_ccfd); n(ws,'L20',dif_ccf)
     c(ws,'H21','30% Pérdida'); n(ws,'I21',pct30)
     ws.merge_cells('H22:L22'); c(ws,'H22','EFECTIVO DROGUERÍA',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'I23','Monto según PRE',bold=True,halign='center'); c(ws,'K23','Monto según NR',bold=True,halign='center'); c(ws,'L23','Diferencia',bold=True,halign='center')
+    c(ws,'I23','Monto Calculado',bold=True,halign='center'); c(ws,'K23','Monto según NR',bold=True,halign='center'); c(ws,'L23','Diferencia',bold=True,halign='center')
     c(ws,'H24','TOTAL',bold=True); n(ws,'I24',abs(pre['efectivo_drogueria'])); n(ws,'K24',EfSa); n(ws,'L24',dif_efvo)
     box(ws,11,8,24,12)
 
@@ -399,7 +400,7 @@ def build_ioma_excel(data, mes, anio):
     box(ws,11,5,24,6)
 
     ws.merge_cells('H12:L12'); c(ws,'H12','NOTAS DE CRÉDITO',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'I13','Monto según PRE',bold=True,halign='center'); c(ws,'K13','Monto según NR',bold=True,halign='center'); c(ws,'L13','Diferencia',bold=True,halign='center')
+    c(ws,'I13','Monto Calculado',bold=True,halign='center'); c(ws,'K13','Monto según NR',bold=True,halign='center'); c(ws,'L13','Diferencia',bold=True,halign='center')
     c(ws,'H14','NRF Anticipo:'); n(ws,'I14',abs(pre['nrf_ant']))
     c(ws,'H15','NRF Definitivo:'); n(ws,'I15',abs(pre['nrf_def']))
     c(ws,'H16','NRF Directas:'); n(ws,'I16',abs(pre['nrf_directas']))
@@ -496,7 +497,7 @@ def build_osde_excel(data, mes, anio):
     box(ws,11,5,19,6)
 
     ws.merge_cells('H12:L12'); c(ws,'H12','NOTAS DE CRÉDITO',bold=True,size=10,fill=LIGHT_BLUE,halign='center')
-    c(ws,'I13','Monto según PRE',bold=True,halign='center'); c(ws,'K13','Monto según NR',bold=True,halign='center'); c(ws,'L13','Diferencia',bold=True,halign='center')
+    c(ws,'I13','Monto Calculado',bold=True,halign='center'); c(ws,'K13','Monto según NR',bold=True,halign='center'); c(ws,'L13','Diferencia',bold=True,halign='center')
     c(ws,'H14','TOTAL',bold=True); n(ws,'I14',pre['notas_credito']); n(ws,'K14',nr['nr_monto']); n(ws,'L14',dif_nr)
     c(ws,'H15','Fecha NR:'); d(ws,'I15',parse_date(nr['nr_fecha']))
     c(ws,'H16','Días:'); ws['I16'].value=dias_nr; ws['I16'].alignment=Alignment(horizontal='right',vertical='center'); ws['I16'].font=Font(size=10)
@@ -545,7 +546,7 @@ async def reporte_pami(
     periodo = f'{quincena} mes {mes} año {anio}'
 
     car_data = parse_json(ask_claude(
-        pdf_to_content(car_bytes, 'CARÁTULA PAMI') + [{"type":"text","text":f"Período: {periodo}. Extraé: {{\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"total_pvp\":0.0,\"total_pvp_pami\":0.0,\"diferencia_total\":0.0,\"importe_bruto_convenio\":0.0}}"}],
+        pdf_to_content(car_bytes, 'CARÁTULA PAMI') + [{"type":"text","text":f"Período: {periodo}. Extraé: {{\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"total_pvp\":0.0,\"total_pvp_pami\":0.0,\"importe_bruto_convenio\":0.0}}"}],
         SYSTEM_JSON))
 
     opf_data = parse_json(ask_claude(
@@ -553,7 +554,7 @@ async def reporte_pami(
         SYSTEM_JSON))
 
     pre_data = parse_json(ask_claude(
-        pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}"}],
+        pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. Todos los valores deben ser positivos (sin signo negativo). efectivo_drogueria = valor absoluto de EFECTIVO DROGUERIA SALDO."}],
         SYSTEM_JSON))
 
     pago_data = parse_json(ask_claude(
@@ -562,7 +563,7 @@ async def reporte_pami(
 
     nr_text = xls_to_text(nr_bytes, nr.filename)
     nr_data = parse_json(ask_claude(
-        [{"type":"text","text":f"NOTAS DE RECUPERO PAMI:\n{nr_text}\n\nSumá ImporteCpte por TipoCte. Fecha de Impresion de primera CCF/NAF = fecha_nr. Fecha EfSa = fecha_efsa. Extraé: {{\"nr_ccf\":0.0,\"nr_ccfd\":0.0,\"nr_naf\":0.0,\"nr_nrfd\":0.0,\"nr_efsa\":0.0,\"fecha_nr\":\"DD/MM/YYYY\",\"fecha_efsa\":\"DD/MM/YYYY\"}}"}],
+        [{"type":"text","text":f"NOTAS DE RECUPERO PAMI:\n{nr_text}\n\nLa tabla tiene columnas: TipoCte e ImporteCpte (entre otras). Sumá TODOS los valores de ImporteCpte agrupando por TipoCte (CCF, CCFD, NAF, NRFD, EfSa). Usá la columna ImporteCpte, NO ImporteCo. Fecha de Impresion de primera fila CCF o NAF = fecha_nr. Fecha de primera fila EfSa = fecha_efsa. Extraé: {{\"nr_ccf\":0.0,\"nr_ccfd\":0.0,\"nr_naf\":0.0,\"nr_nrfd\":0.0,\"nr_efsa\":0.0,\"fecha_nr\":\"DD/MM/YYYY\",\"fecha_efsa\":\"DD/MM/YYYY\"}}"}],
         SYSTEM_JSON))
 
     buf = build_pami_excel(
@@ -1275,20 +1276,20 @@ async def batch_pami(zip_file: UploadFile = File(...)):
                 periodo = f'{quincena_val} mes {mes_num} año {anio}'
 
                 car_data = parse_json(ask_claude(
-                    pdf_to_content(car_bytes, 'CARÁTULA PAMI') + [{"type":"text","text":f"Período: {periodo}. Extraé: {{\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"total_pvp\":0.0,\"total_pvp_pami\":0.0,\"diferencia_total\":0.0,\"importe_bruto_convenio\":0.0}}"}],
+                    pdf_to_content(car_bytes, 'CARÁTULA PAMI') + [{"type":"text","text":f"Período: {periodo}. Extraé: {{\"fecha_cierre\":\"DD/MM/YYYY\",\"nro_recetas\":0,\"total_pvp\":0.0,\"total_pvp_pami\":0.0,\"importe_bruto_convenio\":0.0}}"}],
                     SYSTEM_JSON))
                 opf_data = parse_json(ask_claude(
                     pdf_to_content(opf_bytes, 'OPF PAMI') + [{"type":"text","text":f"Período: {periodo}. Buscar línea Efvo.PAMI. Extraé: {{\"efvo_pami\":0.0,\"fecha_opf\":\"DD/MM/YYYY\",\"nro_comprobante_opf\":0}}"}],
                     SYSTEM_JSON))
                 pre_data = parse_json(ask_claude(
-                    pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}"}],
+                    pdf_to_content(pre_bytes, 'PRE PAMI') + [{"type":"text","text":"Extraé: {\"deb_cred_os\":0.0,\"bonif_tiras\":0.0,\"bonif_ambulatorio\":0.0,\"bonif_insulinas\":0.0,\"ret_gtos_adm_cofa\":0.0,\"efectivo_drogueria\":0.0,\"fdo_prest_colfarma\":0.0,\"nota_cred_ambulatorio\":0.0,\"nota_cred_insulina\":0.0,\"nota_cred_tiras\":0.0,\"retencion_colegio_art12\":0.0,\"total_liquidacion\":0.0}. Todos los valores deben ser positivos (sin signo negativo). efectivo_drogueria = valor absoluto de EFECTIVO DROGUERIA SALDO."}],
                     SYSTEM_JSON))
                 pago_data = parse_json(ask_claude(
                     pdf_to_content(pago_bytes, 'PAGO FINAL PAMI') + [{"type":"text","text":"Buscar línea PAMI. Extraé: {\"fecha_pago\":\"DD/MM/YYYY\",\"nro_comprobante_pago\":0}"}],
                     SYSTEM_JSON))
                 nr_text = xls_to_text(nr_bytes, nr_filename)
                 nr_data = parse_json(ask_claude(
-                    [{"type":"text","text":f"NOTAS DE RECUPERO PAMI:\n{nr_text}\n\nSumá ImporteCpte por TipoCte. Fecha de Impresion de primera CCF/NAF = fecha_nr. Fecha EfSa = fecha_efsa. Extraé: {{\"nr_ccf\":0.0,\"nr_ccfd\":0.0,\"nr_naf\":0.0,\"nr_nrfd\":0.0,\"nr_efsa\":0.0,\"fecha_nr\":\"DD/MM/YYYY\",\"fecha_efsa\":\"DD/MM/YYYY\"}}"}],
+                    [{"type":"text","text":f"NOTAS DE RECUPERO PAMI:\n{nr_text}\n\nLa tabla tiene columnas: TipoCte e ImporteCpte (entre otras). Sumá TODOS los valores de ImporteCpte agrupando por TipoCte (CCF, CCFD, NAF, NRFD, EfSa). Usá la columna ImporteCpte, NO ImporteCo. Fecha de Impresion de primera fila CCF o NAF = fecha_nr. Fecha de primera fila EfSa = fecha_efsa. Extraé: {{\"nr_ccf\":0.0,\"nr_ccfd\":0.0,\"nr_naf\":0.0,\"nr_nrfd\":0.0,\"nr_efsa\":0.0,\"fecha_nr\":\"DD/MM/YYYY\",\"fecha_efsa\":\"DD/MM/YYYY\"}}"}],
                     SYSTEM_JSON))
 
                 buf = build_pami_excel(
