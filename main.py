@@ -12,6 +12,9 @@ from openpyxl.styles import Font, Border, Side, Alignment, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 import base64
 import json
+from bs4 import BeautifulSoup
+import httpx
+import re as _re
 
 app = FastAPI()
 
@@ -2199,6 +2202,296 @@ def build_reporte_anual(reportes_data, os_nombre, anio):
     wb.save(buf)
     buf.seek(0)
     return buf
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DÉBITOS PAMI — Scraper + Análisis con IA
+# ══════════════════════════════════════════════════════════════════════════════
+
+COFA_LOGIN_URL   = "https://principal.cofa.org.ar/"
+COFA_RESUMEN_URL = "https://ncr.cofa.org.ar/tablero/resumen/"
+COFA_AJUSTES_URL = "https://ncr.cofa.org.ar/tablero/resumen/Ajustes/"
+
+async def cofa_login(farmacia: str, clave: str) -> httpx.AsyncClient:
+    """Hace login en el portal COFA y retorna el cliente con sesión activa."""
+    cofa = httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=30,
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    )
+    # GET inicial para obtener cookies
+    await cofa.get(COFA_LOGIN_URL)
+    # POST con credenciales
+    resp = await cofa.post(COFA_LOGIN_URL, data={
+        "TxtFarmacia": farmacia,
+        "TxtClave": clave,
+        "BtnIngresar": "Ingresar"
+    })
+    if resp.status_code not in (200, 302):
+        raise HTTPException(status_code=401, detail="Error al conectar con COFA")
+    # Verificar que la sesión está activa
+    if "Farmacias" not in str(resp.url) and "tablero" not in str(resp.url):
+        resp2 = await cofa.get("https://principal.cofa.org.ar/Farmacias/")
+        if resp2.status_code != 200:
+            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    return cofa
+
+
+async def cofa_get_ajustes(cofa: httpx.AsyncClient, periodo: str) -> list[dict]:
+    """Navega al resumen del período y extrae todos los ajustes/débitos."""
+    resp = await cofa.post(COFA_RESUMEN_URL, data={"PeriodoX": periodo})
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Error al cargar período {periodo}")
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    ajuste_links = []
+    monto_total = 0.0
+
+    for row in soup.find_all("tr"):
+        cells = row.find_all("td")
+        if not cells:
+            continue
+        row_text = " ".join(c.get_text(strip=True) for c in cells)
+        if "AJUSTE" in row_text.upper() and "DEBITO" in row_text.upper():
+            for u_tag in row.find_all("u"):
+                link_text = u_tag.get_text(strip=True)
+                if _re.match(r'^\dQ\d{4}$', link_text):
+                    ajuste_links.append(link_text)
+            for cell in cells:
+                txt = cell.get_text(strip=True).replace(".", "").replace(",", ".")
+                try:
+                    val = float(txt)
+                    if val > 0:
+                        monto_total += val
+                        break
+                except ValueError:
+                    continue
+
+    if not ajuste_links:
+        return []
+
+    ajustes = []
+    for link_id in ajuste_links:
+        archivos = await cofa_get_archivos_ajuste(cofa, periodo, link_id)
+        monto_ajuste = monto_total / len(ajuste_links) if len(ajuste_links) > 1 else monto_total
+        ajustes.append({"id": link_id, "monto": round(monto_ajuste, 2), "archivos": archivos})
+
+    return ajustes
+
+
+async def cofa_get_archivos_ajuste(cofa: httpx.AsyncClient, periodo: str, ajuste_id: str) -> list[dict]:
+    """Obtiene la lista de archivos PNG de un ajuste específico."""
+    # Intentar GET con parámetro ID
+    resp = await cofa.get(COFA_AJUSTES_URL, params={"ID": ajuste_id})
+    if resp.status_code != 200 or not resp.text.strip():
+        # Fallback: POST con datos del ajuste
+        resp = await cofa.post(COFA_AJUSTES_URL, data={"IDajuste": ajuste_id, "PeriodoX": periodo})
+    if resp.status_code != 200 or not resp.text.strip():
+        return []
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    archivos = []
+
+    for row in soup.find_all("tr"):
+        cells = row.find_all("td")
+        if len(cells) < 4:
+            continue
+        nombre_raw = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+        nota = cells[3].get_text(strip=True) if len(cells) > 3 else ""
+        if not nombre_raw.endswith(".png"):
+            continue
+        # Quitar sufijo _001/_002 para agrupar por receta
+        nombre_base = _re.sub(r'_00[12]\.png$', '', nombre_raw)
+        if nombre_base and not any(a["nombre"] == nombre_base for a in archivos):
+            archivos.append({"nombre": nombre_base, "nota": nota})
+
+    return archivos
+
+
+async def cofa_descargar_imagen(cofa: httpx.AsyncClient, periodo: str, nombre_archivo: str) -> bytes | None:
+    """Descarga una imagen de receta y retorna los bytes."""
+    url = f"{COFA_AJUSTES_URL}img/{nombre_archivo}"
+    resp = await cofa.get(url)
+    if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("image"):
+        return resp.content
+    # Fallback con período en la URL
+    anio, mes, q = periodo.split("|")
+    url_alt = f"https://ncr.cofa.org.ar/tablero/resumen/Ajustes/{anio}/{mes}/{q}/{nombre_archivo}"
+    resp2 = await cofa.get(url_alt)
+    if resp2.status_code == 200:
+        return resp2.content
+    return None
+
+
+SYSTEM_DEBITOS = 'CRÍTICO: Respondé ÚNICAMENTE con el objeto JSON solicitado. Sin texto, sin explicaciones, sin markdown. Empezá con { y terminá con }.'
+
+async def generar_resumen_ia_debitos(ajustes: list[dict]) -> dict:
+    """Genera un resumen ejecutivo con recomendaciones basado en los patrones de error."""
+    errores: dict = {}
+    total_recetas = 0
+    for aj in ajustes:
+        for arch in aj["archivos"]:
+            nota = arch.get("nota", "Desconocido")
+            errores[nota] = errores.get(nota, 0) + 1
+            total_recetas += 1
+
+    if total_recetas == 0:
+        return {"conclusion_principal": "No se encontraron recetas debitadas", "recomendaciones": []}
+
+    errores_texto = "\n".join(
+        f"- {nota}: {count} recetas ({round(count/total_recetas*100)}%)"
+        for nota, count in sorted(errores.items(), key=lambda x: x[1], reverse=True)
+    )
+
+    prompt = f"""Analizá los siguientes débitos de PAMI de una farmacia argentina:
+Total de recetas debitadas: {total_recetas}
+Distribución de errores:
+{errores_texto}
+
+Generá un análisis en JSON:
+{{
+  "conclusion_principal": "frase que resume el problema más importante",
+  "patron_dominante": "descripción del error más frecuente",
+  "recomendaciones": [
+    {{"prioridad": "alta", "accion": "acción concreta", "detalle": "explicación"}},
+    {{"prioridad": "media", "accion": "acción concreta", "detalle": "explicación"}},
+    {{"prioridad": "baja", "accion": "acción concreta", "detalle": "explicación"}}
+  ],
+  "proceso_a_revisar": "área que requiere atención inmediata"
+}}"""
+
+    msg = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=800,
+        system=SYSTEM_DEBITOS,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    try:
+        return parse_json(msg.content[0].text)
+    except Exception:
+        return {"conclusion_principal": f"Se detectaron {total_recetas} recetas debitadas", "recomendaciones": []}
+
+
+@app.post("/debitos/scrape")
+async def scrape_debitos(
+    farmacia: str = Form(...),
+    clave: str = Form(...),
+    periodo: str = Form(...)
+):
+    """
+    Login en COFA + extracción de débitos del período indicado.
+    periodo: formato "2025|11|2" (año|mes|quincena)
+    """
+    try:
+        cofa = await cofa_login(farmacia, clave)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Error de login: {str(e)}")
+
+    try:
+        ajustes = await cofa_get_ajustes(cofa, periodo)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error al obtener ajustes: {str(e)}")
+    finally:
+        await cofa.aclose()
+
+    if not ajustes:
+        return JSONResponse({"periodo": periodo, "ajustes": [], "total_recetas": 0, "total_monto": 0,
+                             "mensaje": "No se encontraron débitos para este período"})
+
+    # Calcular estadísticas de errores
+    errores: dict = {}
+    total_recetas = 0
+    for aj in ajustes:
+        for arch in aj["archivos"]:
+            nota = arch.get("nota", "Desconocido")
+            errores[nota] = errores.get(nota, 0) + 1
+            total_recetas += 1
+
+    return JSONResponse({
+        "periodo": periodo,
+        "ajustes": ajustes,
+        "total_recetas": total_recetas,
+        "total_monto": round(sum(aj["monto"] for aj in ajustes), 2),
+        "distribucion_errores": [
+            {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
+            for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
+        ]
+    })
+
+
+@app.post("/debitos/analizar")
+async def analizar_debitos(
+    farmacia: str = Form(...),
+    clave: str = Form(...),
+    periodo: str = Form(...)
+):
+    """
+    Scraping completo + resumen ejecutivo con recomendaciones generado por IA.
+    """
+    try:
+        cofa = await cofa_login(farmacia, clave)
+        ajustes = await cofa_get_ajustes(cofa, periodo)
+        await cofa.aclose()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    if not ajustes:
+        return JSONResponse({"periodo": periodo, "ajustes": [], "total_recetas": 0,
+                             "total_monto": 0, "resumen_ia": None,
+                             "mensaje": "No se encontraron débitos para este período"})
+
+    # Resumen ejecutivo con IA
+    resumen = await generar_resumen_ia_debitos(ajustes)
+
+    errores: dict = {}
+    total_recetas = 0
+    for aj in ajustes:
+        for arch in aj["archivos"]:
+            nota = arch.get("nota", "Desconocido")
+            errores[nota] = errores.get(nota, 0) + 1
+            total_recetas += 1
+
+    return JSONResponse({
+        "periodo": periodo,
+        "ajustes": ajustes,
+        "total_recetas": total_recetas,
+        "total_monto": round(sum(aj["monto"] for aj in ajustes), 2),
+        "distribucion_errores": [
+            {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
+            for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "resumen_ia": resumen
+    })
+
+
+@app.get("/debitos/imagen")
+async def obtener_imagen_receta(
+    farmacia: str,
+    clave: str,
+    periodo: str,
+    nombre_archivo: str
+):
+    """Descarga y retorna una imagen de receta como base64 (llamado on-demand desde el frontend)."""
+    try:
+        cofa = await cofa_login(farmacia, clave)
+        img_bytes = await cofa_descargar_imagen(cofa, periodo, nombre_archivo)
+        await cofa.aclose()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    if not img_bytes:
+        raise HTTPException(status_code=404, detail="Imagen no encontrada")
+
+    b64 = base64.standard_b64encode(img_bytes).decode()
+    return JSONResponse({"nombre": nombre_archivo, "data": f"data:image/png;base64,{b64}"})
+
 
 
 @app.post("/reporte-anual")

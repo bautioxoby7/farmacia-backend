@@ -6,3 +6,5 @@ pandas==2.2.3
 python-multipart==0.0.20
 httpx==0.28.1
 xlrd==2.0.1
+beautifulsoup4==4.12.3
+lxml==5.2.2
