@@ -1761,3 +1761,459 @@ async def batch_unionpersonal(zip_file: UploadFile = File(...)):
     output_zip.seek(0)
     return StreamingResponse(output_zip, media_type='application/zip',
                              headers={'Content-Disposition': 'attachment; filename="Reportes_UP.zip"'})
+
+# ── REPORTE ANUAL ─────────────────────────────────────────────────────────────
+
+def detectar_os_desde_nombre(filename):
+    """Detecta la obra social y período desde el nombre del archivo"""
+    name = filename.upper()
+    if 'PAMI' in name: return 'PAMI'
+    if 'IOMA' in name: return 'IOMA'
+    if 'OSDE' in name: return 'OSDE'
+    if 'OSPECON' in name: return 'OSPECON'
+    if 'OSPRERA' in name: return 'OSPRERA'
+    if 'UNION' in name or 'PERSONAL' in name: return 'UNION PERSONAL'
+    return 'DESCONOCIDA'
+
+def leer_resumen_reporte(xlsx_bytes, filename):
+    """Lee la tab Resumen de un reporte generado y devuelve los datos"""
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+        tmp.write(xlsx_bytes)
+        tmp_path = tmp.name
+    try:
+        sheets = pd.read_excel(tmp_path, sheet_name=None)
+        resumen = sheets.get('Resumen')
+        if resumen is None:
+            return None
+        # Leer todas las tablas de la hoja Resumen
+        result = {'filename': filename, 'sheets': {}}
+        for sheet_name, df in sheets.items():
+            if sheet_name == 'Resumen':
+                result['resumen_raw'] = df
+        return result
+    finally:
+        os.unlink(tmp_path)
+
+def build_reporte_anual(reportes_data, os_nombre, anio):
+    """Construye el reporte anual consolidado"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.chart import BarChart, LineChart, Reference
+    from openpyxl.chart.series import DataPoint
+    from openpyxl.utils import get_column_letter
+
+    DARK_BLUE_HEX = '1F3864'
+    MID_BLUE_HEX = '2E5FA3'
+    LIGHT_BLUE_HEX = 'D6E4F0'
+    GREEN_HEX = '1E8449'
+    WHITE_HEX = 'FFFFFF'
+    ORANGE_HEX = 'E67E22'
+
+    def header_cell(ws, cell, value, bg=DARK_BLUE_HEX, fg=WHITE_HEX, bold=True, size=10, halign='center'):
+        c = ws[cell]
+        c.value = value
+        c.font = Font(bold=bold, color=fg, size=size, name='Arial')
+        c.fill = PatternFill('solid', fgColor=bg)
+        c.alignment = Alignment(horizontal=halign, vertical='center', wrap_text=True)
+
+    def data_cell(ws, cell, value, num_fmt=None, bold=False, bg=None, halign='right'):
+        c = ws[cell]
+        c.value = value
+        c.font = Font(bold=bold, size=10, name='Arial')
+        c.alignment = Alignment(horizontal=halign, vertical='center')
+        if num_fmt: c.number_format = num_fmt
+        if bg: c.fill = PatternFill('solid', fgColor=bg)
+
+    def border_range(ws, min_row, max_row, min_col, max_col):
+        thin = Side(style='thin', color='BFBFBF')
+        medium = Side(style='medium', color=DARK_BLUE_HEX)
+        for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
+            for cell in row:
+                cell.border = Border(
+                    top=medium if cell.row==min_row else thin,
+                    bottom=medium if cell.row==max_row else thin,
+                    left=medium if cell.column==min_col else thin,
+                    right=medium if cell.column==max_col else thin
+                )
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    # ── Procesar datos de los reportes ──────────────────────────────────────
+    filas_principales = []
+    filas_desglose = []
+    filas_diferencias = []
+
+    for rd in sorted(reportes_data, key=lambda x: x['filename']):
+        df = rd['resumen_raw']
+        # Detectar estructura: buscar filas con datos
+        # Tabla 1: fila 1 = headers, fila 2 = datos
+        # Tabla 2: fila 4 = headers, fila 5 = datos
+        # Tabla 3: fila 7 = headers, fila 8 = datos
+        periodo = rd['filename'].replace(' - Reporte.xlsx','').replace(' - Reporte PAMI.xlsx','').replace('.xlsx','')
+
+        try:
+            # Tabla principal (fila 0 = headers, fila 1 = datos)
+            row1 = df.iloc[1]
+            headers1 = list(df.iloc[0])
+            d1 = dict(zip(headers1, row1))
+            d1['PERIODO'] = periodo
+            filas_principales.append(d1)
+        except: pass
+
+        try:
+            # Tabla desglose (fila 3 = headers, fila 4 = datos)
+            row2 = df.iloc[4]
+            headers2 = list(df.iloc[3])
+            d2 = dict(zip(headers2, row2))
+            d2['PERIODO'] = periodo
+            filas_desglose.append(d2)
+        except: pass
+
+        try:
+            # Tabla diferencias (fila 6 = headers, fila 7 = datos)
+            row3 = df.iloc[7]
+            headers3 = list(df.iloc[6])
+            d3 = dict(zip(headers3, row3))
+            d3['PERIODO'] = periodo
+            filas_diferencias.append(d3)
+        except: pass
+
+    # ── TAB 1: Resumen Anual ────────────────────────────────────────────────
+    ws1 = wb.create_sheet('Resumen Anual')
+    ws1.sheet_view.showGridLines = False
+    ws1.freeze_panes = 'B3'
+
+    # Título
+    ws1.merge_cells('A1:P1')
+    t = ws1['A1']
+    t.value = f'REPORTE ANUAL {os_nombre} — {anio}'
+    t.font = Font(bold=True, size=16, color=WHITE_HEX, name='Arial')
+    t.fill = PatternFill('solid', fgColor=DARK_BLUE_HEX)
+    t.alignment = Alignment(horizontal='center', vertical='center')
+    ws1.row_dimensions[1].height = 30
+
+    cols1 = ['PERIODO','RECETAS','PVP','PVP PAMI','TOTAL','%PVP','AFILIADO','%AFL','PAMI','%PAMI','DIAS PROM.','DEBITOS','RETENCIONES','%RET','BONIFICACIONES','%BON']
+    col_keys = ['PERIODO','RECETAS','PVP','PVP PAMI','TOTAL','%PVP','AFILIADO','%TOTAL AFL','PAMI','%TOTAL PAMI','DIAS PROM. PAGO','DEBITOS','RETENCIONES','%PVP PAMI RET','BONIFICACIONES','%PVP PAMI BON']
+
+    for i, col in enumerate(cols1):
+        header_cell(ws1, f'{get_column_letter(i+1)}2', col)
+    ws1.row_dimensions[2].height = 30
+
+    num_fmt_map = {
+        'RECETAS':'#,##0', 'PVP':'#,##0', 'PVP PAMI':'#,##0', 'TOTAL':'#,##0',
+        '%PVP':'0.0%', 'AFILIADO':'#,##0', '%AFL':'0.0%', 'PAMI':'#,##0',
+        '%PAMI':'0.0%', 'DIAS PROM.':'#,##0.0', 'DEBITOS':'#,##0',
+        'RETENCIONES':'#,##0', '%RET':'0.0%', 'BONIFICACIONES':'#,##0', '%BON':'0.0%'
+    }
+
+    for row_idx, d in enumerate(filas_principales):
+        r = row_idx + 3
+        alt_bg = 'EBF2FA' if row_idx % 2 == 0 else None
+        for col_idx, (col_display, col_key) in enumerate(zip(cols1, col_keys)):
+            cell_addr = f'{get_column_letter(col_idx+1)}{r}'
+            val = d.get(col_key, '')
+            fmt = num_fmt_map.get(col_display)
+            halign = 'left' if col_display == 'PERIODO' else 'right'
+            data_cell(ws1, cell_addr, val, num_fmt=fmt, bg=alt_bg, halign=halign)
+
+    # Fila de totales/promedios
+    if filas_principales:
+        last_data_row = len(filas_principales) + 2
+        total_row = last_data_row + 1
+        ws1.row_dimensions[total_row].height = 20
+        header_cell(ws1, f'A{total_row}', 'TOTAL / PROM.', bg=MID_BLUE_HEX)
+        for col_idx, col_display in enumerate(cols1[1:], 2):
+            col_letter = get_column_letter(col_idx)
+            fmt = num_fmt_map.get(col_display)
+            if col_display in ['%PVP','%AFL','%PAMI','%RET','%BON','DIAS PROM.']:
+                formula = f'=AVERAGE({col_letter}3:{col_letter}{last_data_row})'
+            else:
+                formula = f'=SUM({col_letter}3:{col_letter}{last_data_row})'
+            c = ws1[f'{col_letter}{total_row}']
+            c.value = formula
+            c.font = Font(bold=True, color=WHITE_HEX, size=10, name='Arial')
+            c.fill = PatternFill('solid', fgColor=MID_BLUE_HEX)
+            c.alignment = Alignment(horizontal='right', vertical='center')
+            if fmt: c.number_format = fmt
+
+        border_range(ws1, 2, total_row, 1, len(cols1))
+
+    # Anchos de columna
+    ws1.column_dimensions['A'].width = 18
+    for i in range(2, len(cols1)+1):
+        ws1.column_dimensions[get_column_letter(i)].width = 14
+
+    # ── TAB 2: Desglose de Pagos ────────────────────────────────────────────
+    ws2 = wb.create_sheet('Desglose Pagos')
+    ws2.sheet_view.showGridLines = False
+    ws2.freeze_panes = 'B3'
+
+    ws2.merge_cells('A1:M1')
+    t2 = ws2['A1']
+    t2.value = f'DESGLOSE DE PAGOS — {os_nombre} {anio}'
+    t2.font = Font(bold=True, size=16, color=WHITE_HEX, name='Arial')
+    t2.fill = PatternFill('solid', fgColor=DARK_BLUE_HEX)
+    t2.alignment = Alignment(horizontal='center', vertical='center')
+    ws2.row_dimensions[1].height = 30
+
+    cols2 = ['PERIODO','ANTICIPO','%ANT','DIAS ANT','LIQ FINAL','%LIQ','DIAS LIQ','NR','%NR','DIAS NR','EFVO DROG','%EFVO','DIAS EFVO']
+    col_keys2 = ['PERIODO','ANTICIPO','%PAMI ANT','DIAS ANT','LIQ FINAL','%PAMI LIQ FINAL','DIAS LIQ FINAL','NOTAS DE RECUPERO','%PAMI NR','DIAS NR','EFVO DROG','%PAMI EFVO DROG','DIAS EFVO DROG']
+    num_fmt2 = {'ANTICIPO':'#,##0','%ANT':'0.0%','DIAS ANT':'#,##0','LIQ FINAL':'#,##0','%LIQ':'0.0%','DIAS LIQ':'#,##0','NR':'#,##0','%NR':'0.0%','DIAS NR':'#,##0','EFVO DROG':'#,##0','%EFVO':'0.0%','DIAS EFVO':'#,##0'}
+
+    for i, col in enumerate(cols2):
+        header_cell(ws2, f'{get_column_letter(i+1)}2', col)
+    ws2.row_dimensions[2].height = 30
+
+    for row_idx, d in enumerate(filas_desglose):
+        r = row_idx + 3
+        alt_bg = 'EBF2FA' if row_idx % 2 == 0 else None
+        for col_idx, (col_display, col_key) in enumerate(zip(cols2, col_keys2)):
+            cell_addr = f'{get_column_letter(col_idx+1)}{r}'
+            val = d.get(col_key, '')
+            fmt = num_fmt2.get(col_display)
+            halign = 'left' if col_display == 'PERIODO' else 'right'
+            data_cell(ws2, cell_addr, val, num_fmt=fmt, bg=alt_bg, halign=halign)
+
+    if filas_desglose:
+        last_data_row2 = len(filas_desglose) + 2
+        total_row2 = last_data_row2 + 1
+        header_cell(ws2, f'A{total_row2}', 'TOTAL / PROM.', bg=MID_BLUE_HEX)
+        for col_idx, col_display in enumerate(cols2[1:], 2):
+            col_letter = get_column_letter(col_idx)
+            fmt = num_fmt2.get(col_display)
+            if col_display.startswith('%') or col_display.startswith('DIAS'):
+                formula = f'=AVERAGE({col_letter}3:{col_letter}{last_data_row2})'
+            else:
+                formula = f'=SUM({col_letter}3:{col_letter}{last_data_row2})'
+            c = ws2[f'{col_letter}{total_row2}']
+            c.value = formula
+            c.font = Font(bold=True, color=WHITE_HEX, size=10, name='Arial')
+            c.fill = PatternFill('solid', fgColor=MID_BLUE_HEX)
+            c.alignment = Alignment(horizontal='right', vertical='center')
+            if fmt: c.number_format = fmt
+        border_range(ws2, 2, total_row2, 1, len(cols2))
+
+    ws2.column_dimensions['A'].width = 18
+    for i in range(2, len(cols2)+1):
+        ws2.column_dimensions[get_column_letter(i)].width = 14
+
+    # ── TAB 3: Diferencias ─────────────────────────────────────────────────
+    ws3 = wb.create_sheet('Diferencias')
+    ws3.sheet_view.showGridLines = False
+    ws3.freeze_panes = 'B3'
+
+    ws3.merge_cells('A1:D1')
+    t3 = ws3['A1']
+    t3.value = f'DIFERENCIAS — {os_nombre} {anio}'
+    t3.font = Font(bold=True, size=16, color=WHITE_HEX, name='Arial')
+    t3.fill = PatternFill('solid', fgColor=DARK_BLUE_HEX)
+    t3.alignment = Alignment(horizontal='center', vertical='center')
+    ws3.row_dimensions[1].height = 30
+
+    # Detectar columnas de diferencias disponibles
+    dif_cols_available = list(filas_diferencias[0].keys()) if filas_diferencias else []
+    dif_cols_display = [c for c in dif_cols_available if c != 'PERIODO']
+
+    headers3 = ['PERIODO'] + dif_cols_display
+    for i, col in enumerate(headers3):
+        header_cell(ws3, f'{get_column_letter(i+1)}2', col)
+    ws3.row_dimensions[2].height = 30
+
+    for row_idx, d in enumerate(filas_diferencias):
+        r = row_idx + 3
+        alt_bg = 'EBF2FA' if row_idx % 2 == 0 else None
+        for col_idx, col in enumerate(headers3):
+            cell_addr = f'{get_column_letter(col_idx+1)}{r}'
+            val = d.get(col, '')
+            halign = 'left' if col == 'PERIODO' else 'right'
+            c = ws3[cell_addr]
+            c.value = val
+            c.font = Font(size=10, name='Arial')
+            c.alignment = Alignment(horizontal=halign, vertical='center')
+            c.number_format = '#,##0.00'
+            if alt_bg and col != 'PERIODO': c.fill = PatternFill('solid', fgColor=alt_bg)
+            # Colorear diferencias: rojo si negativo, verde si positivo
+            if col != 'PERIODO' and isinstance(val, (int, float)):
+                if val < -100: c.font = Font(size=10, name='Arial', color='C0392B', bold=True)
+                elif val > 100: c.font = Font(size=10, name='Arial', color='1E8449', bold=True)
+
+    if filas_diferencias:
+        last_data_row3 = len(filas_diferencias) + 2
+        total_row3 = last_data_row3 + 1
+        header_cell(ws3, f'A{total_row3}', 'TOTAL', bg=MID_BLUE_HEX)
+        for col_idx, col in enumerate(headers3[1:], 2):
+            col_letter = get_column_letter(col_idx)
+            c = ws3[f'{col_letter}{total_row3}']
+            c.value = f'=SUM({col_letter}3:{col_letter}{last_data_row3})'
+            c.font = Font(bold=True, color=WHITE_HEX, size=10, name='Arial')
+            c.fill = PatternFill('solid', fgColor=MID_BLUE_HEX)
+            c.alignment = Alignment(horizontal='right', vertical='center')
+            c.number_format = '#,##0.00'
+        border_range(ws3, 2, total_row3, 1, len(headers3))
+
+    ws3.column_dimensions['A'].width = 18
+    for i in range(2, len(headers3)+1):
+        ws3.column_dimensions[get_column_letter(i)].width = 18
+
+    # ── TAB 4: Gráficos ────────────────────────────────────────────────────
+    ws4 = wb.create_sheet('Gráficos')
+    ws4.sheet_view.showGridLines = False
+
+    ws4.merge_cells('A1:N1')
+    t4 = ws4['A1']
+    t4.value = f'GRÁFICOS — {os_nombre} {anio}'
+    t4.font = Font(bold=True, size=16, color=WHITE_HEX, name='Arial')
+    t4.fill = PatternFill('solid', fgColor=DARK_BLUE_HEX)
+    t4.alignment = Alignment(horizontal='center', vertical='center')
+    ws4.row_dimensions[1].height = 30
+
+    n = len(filas_principales)
+    if n > 0:
+        # Datos auxiliares para gráficos
+        ws4['A3'] = 'PERIODO'; ws4['B3'] = 'PVP PAMI'; ws4['C3'] = 'TOTAL PAGADO'; ws4['D3'] = 'DIAS PROM'
+        ws4['E3'] = 'ANTICIPO'; ws4['F3'] = 'LIQ FINAL'; ws4['G3'] = 'NR'; ws4['H3'] = 'EFVO DROG'
+        for cell in [ws4['A3'],ws4['B3'],ws4['C3'],ws4['D3'],ws4['E3'],ws4['F3'],ws4['G3'],ws4['H3']]:
+            cell.font = Font(bold=True, size=9, color=WHITE_HEX, name='Arial')
+            cell.fill = PatternFill('solid', fgColor=MID_BLUE_HEX)
+            cell.alignment = Alignment(horizontal='center')
+
+        for i, (d1, d2) in enumerate(zip(filas_principales, filas_desglose)):
+            r = i + 4
+            ws4[f'A{r}'] = d1.get('PERIODO','')
+            ws4[f'B{r}'] = d1.get('PVP PAMI', 0)
+            ws4[f'C{r}'] = d1.get('PAMI', 0)
+            ws4[f'D{r}'] = d1.get('DIAS PROM. PAGO', 0)
+            ws4[f'E{r}'] = d2.get('ANTICIPO', 0)
+            ws4[f'F{r}'] = d2.get('LIQ FINAL', 0)
+            ws4[f'G{r}'] = d2.get('NOTAS DE RECUPERO', 0)
+            ws4[f'H{r}'] = d2.get('EFVO DROG', 0)
+            for col in 'BCDEFGH':
+                ws4[f'{col}{r}'].number_format = '#,##0'
+            ws4[f'D{r}'].number_format = '#,##0.0'
+
+        # Gráfico 1: PVP PAMI vs Total Pagado (líneas)
+        chart1 = LineChart()
+        chart1.title = 'PVP PAMI vs Total Pagado'
+        chart1.style = 10
+        chart1.y_axis.title = 'Monto ($)'
+        chart1.x_axis.title = 'Período'
+        chart1.height = 12; chart1.width = 20
+
+        data_pvp = Reference(ws4, min_col=2, max_col=3, min_row=3, max_row=3+n)
+        cats = Reference(ws4, min_col=1, min_row=4, max_row=3+n)
+        chart1.add_data(data_pvp, titles_from_data=True)
+        chart1.set_categories(cats)
+        chart1.series[0].graphicalProperties.line.solidFill = MID_BLUE_HEX
+        chart1.series[1].graphicalProperties.line.solidFill = GREEN_HEX
+        ws4.add_chart(chart1, 'A6')
+
+        # Gráfico 2: Composición de pagos (barras apiladas)
+        chart2 = BarChart()
+        chart2.type = 'col'; chart2.grouping = 'stacked'; chart2.overlap = 100
+        chart2.title = 'Composición de Pagos'
+        chart2.y_axis.title = 'Monto ($)'
+        chart2.x_axis.title = 'Período'
+        chart2.height = 12; chart2.width = 20
+
+        data_comp = Reference(ws4, min_col=5, max_col=8, min_row=3, max_row=3+n)
+        chart2.add_data(data_comp, titles_from_data=True)
+        chart2.set_categories(cats)
+        colors = [MID_BLUE_HEX, '5B9BD5', GREEN_HEX, ORANGE_HEX]
+        for i, color in enumerate(colors):
+            if i < len(chart2.series):
+                chart2.series[i].graphicalProperties.solidFill = color
+        ws4.add_chart(chart2, 'K6')
+
+        # Gráfico 3: Días promedio de pago (barras)
+        chart3 = BarChart()
+        chart3.type = 'col'
+        chart3.title = 'Días Promedio de Pago'
+        chart3.y_axis.title = 'Días'
+        chart3.x_axis.title = 'Período'
+        chart3.height = 12; chart3.width = 20
+
+        data_dias = Reference(ws4, min_col=4, max_col=4, min_row=3, max_row=3+n)
+        chart3.add_data(data_dias, titles_from_data=True)
+        chart3.set_categories(cats)
+        chart3.series[0].graphicalProperties.solidFill = MID_BLUE_HEX
+        ws4.add_chart(chart3, 'A28')
+
+        # Gráfico 4: Diferencias (barras)
+        if filas_diferencias:
+            ws4[f'A{4+n+2}'] = 'PERIODO'
+            dif_keys = [c for c in filas_diferencias[0].keys() if c != 'PERIODO']
+            for j, k in enumerate(dif_keys):
+                ws4[f'{get_column_letter(j+2)}{4+n+2}'] = k
+                for i, d in enumerate(filas_diferencias):
+                    ws4[f'{get_column_letter(j+2)}{4+n+3+i}'] = d.get(k, 0)
+            for i, d in enumerate(filas_diferencias):
+                ws4[f'A{4+n+3+i}'] = d.get('PERIODO','')
+
+            chart4 = BarChart()
+            chart4.type = 'col'
+            chart4.title = 'Diferencias'
+            chart4.y_axis.title = 'Monto ($)'
+            chart4.height = 12; chart4.width = 20
+            dif_start_row = 4+n+2
+            data_dif = Reference(ws4, min_col=2, max_col=1+len(dif_keys), min_row=dif_start_row, max_row=dif_start_row+len(filas_diferencias))
+            cats_dif = Reference(ws4, min_col=1, min_row=dif_start_row+1, max_row=dif_start_row+len(filas_diferencias))
+            chart4.add_data(data_dif, titles_from_data=True)
+            chart4.set_categories(cats_dif)
+            ws4.add_chart(chart4, 'K28')
+
+    for col in 'ABCDEFGH':
+        ws4.column_dimensions[col].width = 16
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@app.post("/reporte-anual")
+async def reporte_anual(archivos: list[UploadFile] = File(...)):
+    if not archivos:
+        raise HTTPException(status_code=400, detail="No se subieron archivos")
+
+    reportes_por_os = {}
+
+    for archivo in archivos:
+        xlsx_bytes = await archivo.read()
+        os_nombre = detectar_os_desde_nombre(archivo.filename)
+        resultado = leer_resumen_reporte(xlsx_bytes, archivo.filename)
+        if resultado:
+            if os_nombre not in reportes_por_os:
+                reportes_por_os[os_nombre] = []
+            reportes_por_os[os_nombre].append(resultado)
+
+    if not reportes_por_os:
+        raise HTTPException(status_code=400, detail="No se pudieron leer los archivos")
+
+    # Detectar año desde los nombres de archivo
+    import re
+    primer_archivo = archivos[0].filename
+    anio_match = re.search(r'20(\d{2})', primer_archivo)
+    anio = f"20{anio_match.group(1)}" if anio_match else "2025"
+
+    # Si hay una sola OS, devolver un Excel directo
+    if len(reportes_por_os) == 1:
+        os_nombre = list(reportes_por_os.keys())[0]
+        reportes = reportes_por_os[os_nombre]
+        buf = build_reporte_anual(reportes, os_nombre, anio)
+        filename = f"Reporte Anual {os_nombre} {anio}.xlsx"
+        return StreamingResponse(buf,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'})
+
+    # Si hay múltiples OS, devolver un ZIP
+    output_zip = io.BytesIO()
+    with zipfile.ZipFile(output_zip, 'w') as zout:
+        for os_nombre, reportes in reportes_por_os.items():
+            buf = build_reporte_anual(reportes, os_nombre, anio)
+            zout.writestr(f"Reporte Anual {os_nombre} {anio}.xlsx", buf.getvalue())
+
+    output_zip.seek(0)
+    return StreamingResponse(output_zip, media_type='application/zip',
+        headers={'Content-Disposition': f'attachment; filename="Reportes Anuales {anio}.zip"'})
