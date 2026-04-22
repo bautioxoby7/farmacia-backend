@@ -2229,10 +2229,10 @@ COFA_AJUSTES_URL = "https://ncr.cofa.org.ar/tablero/resumen/Ajustes/"
 
 async def cofa_scrape(farmacia: str, clave: str, periodo: str) -> list[dict]:
     """
-    Usa Playwright para hacer login en COFA (resuelve reCAPTCHA v3 automáticamente
-    porque ejecuta un browser real) y extraer los débitos del período indicado.
+    Usa Playwright para hacer login en COFA y extraer débitos.
     """
     from playwright.async_api import async_playwright
+    import traceback
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
@@ -2243,30 +2243,25 @@ async def cofa_scrape(farmacia: str, clave: str, periodo: str) -> list[dict]:
 
         try:
             # 1. Login
+            print(f"[COFA] Paso 1: navegando a {COFA_LOGIN_URL}")
             await page.goto(COFA_LOGIN_URL, wait_until="networkidle")
-            await page.fill('[name=\'Farmacia\']', farmacia)
-            await page.fill('[name=\'Clave\']', clave)
-
-            # Esperar que reCAPTCHA v3 genere el token automáticamente
-            await page.wait_for_timeout(2000)
-
-            # Ejecutar recaptcha manualmente si el token está vacío
-            token_vacio = await page.evaluate(
-                "document.querySelector('[name=\'recaptcha_response\']')?.value || ''"
-            )
-            if not token_vacio:
-                await page.evaluate("""
-                    grecaptcha.ready(() => {
-                        grecaptcha.execute('6LeMGnkUAAAAAGwmr1orFWBA0JlPgdo57-1YOZRN', {action: 'submit'})
-                            .then(token => { document.querySelector('[name="recaptcha_response"]').value = token; });
-                    });
-                """)
-                await page.wait_for_timeout(2000)
-
-            # Submit del form
-            await page.click('[name=\'B1\']')
+            print(f"[COFA] Paso 2: URL actual: {page.url}")
+            await page.locator("input[name=Farmacia]").fill(farmacia)
+            await page.locator("input[name=Clave]").fill(clave)
+            await page.wait_for_timeout(3000)
+            print("[COFA] Paso 3: ejecutando recaptcha")
+            sitekey = "6LeMGnkUAAAAAGwmr1orFWBA0JlPgdo57-1YOZRN"
+            js_rc = ("grecaptcha.ready(function(){" +
+                     "grecaptcha.execute('" + sitekey + "',{action:'submit'})" +
+                     ".then(function(t){" +
+                     "var i=document.querySelector('input[name=recaptcha_response]');" +
+                     "if(i)i.value=t;});});")
+            await page.evaluate(js_rc)
+            await page.wait_for_timeout(3000)
+            print("[COFA] Paso 4: haciendo submit")
+            await page.locator("input[name=B1]").click()
             await page.wait_for_load_state("networkidle")
-
+            print(f"[COFA] Paso 5: URL post-login: {page.url}")
             # Verificar login exitoso
             if "Farmacias" not in page.url and "tablero" not in page.url and "ncr.cofa" not in page.url:
                 # Navegar directo al tablero
