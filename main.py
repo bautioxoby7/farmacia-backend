@@ -1262,7 +1262,7 @@ async def batch_pami(zip_file: UploadFile = File(...)):
             pago_file = find_file(liq_files, 'pago')
 
             if not all([caratula, nr_file, opf_file, pre_file, pago_file]):
-                errores.append(f"Faltan archivos en: {rel}")
+                errores.append(f"❌ Faltan archivos en: {rel}\n   → Verificá que la carpeta tenga todos los archivos necesarios (Carátula, PRE, Pago, etc.)")
                 continue
 
             try:
@@ -1275,7 +1275,7 @@ async def batch_pami(zip_file: UploadFile = File(...)):
                 anio_part = next((p for p in parts if p.isdigit() and len(p) == 4), None)
                 
                 if not mes_part or not anio_part:
-                    errores.append(f"No se pudo determinar mes/año en: {rel}")
+                    errores.append(f"❌ No se pudo determinar mes/año en: {rel}\n   → Verificá que la estructura de carpetas sea: año/mes/quincena")
                     continue
 
                 meses_map = {'Enero':'01','Febrero':'02','Marzo':'03','Abril':'04','Mayo':'05','Junio':'06','Julio':'07','Agosto':'08','Septiembre':'09','Octubre':'10','Noviembre':'11','Diciembre':'12'}
@@ -1316,7 +1316,7 @@ async def batch_pami(zip_file: UploadFile = File(...)):
                 reportes.append((filename, buf.getvalue()))
 
             except Exception as e:
-                errores.append(f"Error en {rel}: {str(e)}")
+                errores.append(f"❌ Error procesando: {rel}\n   Causa: {str(e)}\n   → Intentá generar este reporte de forma individual en la app")
 
         if not reportes:
             raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
@@ -1326,7 +1326,7 @@ async def batch_pami(zip_file: UploadFile = File(...)):
             for filename, data in reportes:
                 zout.writestr(filename, data)
             if errores:
-                zout.writestr("errores.txt", "\n".join(errores))
+                zout.writestr("errores.txt", "REPORTES CON ERRORES\n" + "="*50 + "\n\n" + "\n\n".join(errores) + "\n\n" + "="*50 + "\nPara los reportes con error, intentá generarlos de forma individual desde la app.")
 
     output_zip.seek(0)
     return StreamingResponse(output_zip, media_type='application/zip',
@@ -1368,12 +1368,12 @@ async def batch_ioma(zip_file: UploadFile = File(...)):
             pago_file = find_file(liq_files, 'pago')
 
             if not all([car_files, opf_file, pre_file, pago_file]):
-                errores.append(f"Faltan archivos en: {rel}"); continue
+                errores.append(f"❌ Faltan archivos en: {rel}\n   → Verificá que la carpeta tenga todos los archivos necesarios (Carátula, PRE, Pago, etc.)"); continue
 
             anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
             mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
             if not anio_part or not mes_part:
-                errores.append(f"No se pudo determinar mes/año en: {rel}"); continue
+                errores.append(f"❌ No se pudo determinar mes/año en: {rel}\n   → Verificá que la estructura de carpetas sea: año/mes/quincena"); continue
 
             mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
             anio = anio_part
@@ -1445,7 +1445,7 @@ async def batch_ioma(zip_file: UploadFile = File(...)):
                     mes_num, anio[-2:])
                 reportes.append((f"{anio[-2:]}.{mes_num} - Reporte IOMA.xlsx", buf.getvalue()))
             except Exception as e:
-                errores.append(f"Error en {rel}: {str(e)}")
+                errores.append(f"❌ Error procesando: {rel}\n   Causa: {str(e)}\n   → Intentá generar este reporte de forma individual en la app")
 
         if not reportes:
             raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
@@ -1453,7 +1453,7 @@ async def batch_ioma(zip_file: UploadFile = File(...)):
             for filename, data in reportes:
                 zout.writestr(filename, data)
             if errores:
-                zout.writestr("errores.txt", "\n".join(errores))
+                zout.writestr("errores.txt", "REPORTES CON ERRORES\n" + "="*50 + "\n\n" + "\n\n".join(errores) + "\n\n" + "="*50 + "\nPara los reportes con error, intentá generarlos de forma individual desde la app.")
 
     output_zip.seek(0)
     return StreamingResponse(output_zip, media_type='application/zip',
@@ -1490,12 +1490,12 @@ async def batch_osde(zip_file: UploadFile = File(...)):
             pago_file = find_file(liq_files, 'pago')
 
             if not all([car_file, pre_file, pago_file]):
-                errores.append(f"Faltan archivos en: {rel}"); continue
+                errores.append(f"❌ Faltan archivos en: {rel}\n   → Verificá que la carpeta tenga todos los archivos necesarios (Carátula, PRE, Pago, etc.)"); continue
 
             anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
             mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
             if not anio_part or not mes_part:
-                errores.append(f"No se pudo determinar mes/año en: {rel}"); continue
+                errores.append(f"❌ No se pudo determinar mes/año en: {rel}\n   → Verificá que la estructura de carpetas sea: año/mes/quincena"); continue
             mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
             anio = anio_part
 
@@ -1518,7 +1518,7 @@ async def batch_osde(zip_file: UploadFile = File(...)):
                 buf = build_osde_excel({'caratula':car_data,'pre':pre_data,'pago':pago_data,'nr':nr_data}, mes_num, anio[-2:])
                 reportes.append((f"{anio[-2:]}.{mes_num} - Reporte OSDE.xlsx", buf.getvalue()))
             except Exception as e:
-                errores.append(f"Error en {rel}: {str(e)}")
+                errores.append(f"❌ Error procesando: {rel}\n   Causa: {str(e)}\n   → Intentá generar este reporte de forma individual en la app")
 
         if not reportes:
             raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
@@ -1526,7 +1526,7 @@ async def batch_osde(zip_file: UploadFile = File(...)):
             for filename, data in reportes:
                 zout.writestr(filename, data)
             if errores:
-                zout.writestr("errores.txt", "\n".join(errores))
+                zout.writestr("errores.txt", "REPORTES CON ERRORES\n" + "="*50 + "\n\n" + "\n\n".join(errores) + "\n\n" + "="*50 + "\nPara los reportes con error, intentá generarlos de forma individual desde la app.")
 
     output_zip.seek(0)
     return StreamingResponse(output_zip, media_type='application/zip',
@@ -1562,12 +1562,12 @@ async def batch_ospecon(zip_file: UploadFile = File(...)):
             pago_file = find_file(liq_files, 'pago')
 
             if not all([car_files, pre_file, pago_file]):
-                errores.append(f"Faltan archivos en: {rel}"); continue
+                errores.append(f"❌ Faltan archivos en: {rel}\n   → Verificá que la carpeta tenga todos los archivos necesarios (Carátula, PRE, Pago, etc.)"); continue
 
             anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
             mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
             if not anio_part or not mes_part:
-                errores.append(f"No se pudo determinar mes/año en: {rel}"); continue
+                errores.append(f"❌ No se pudo determinar mes/año en: {rel}\n   → Verificá que la estructura de carpetas sea: año/mes/quincena"); continue
             mes_num = next((v for k,v in meses_map.items() if k in mes_part), None)
             anio = anio_part
 
@@ -1585,7 +1585,7 @@ async def batch_ospecon(zip_file: UploadFile = File(...)):
                 buf = build_ospecon_excel({'caratula':car_data,'pre':pre_data,'pago':pago_data}, mes_num, anio[-2:])
                 reportes.append((f"{anio[-2:]}.{mes_num} - Reporte OSPECON.xlsx", buf.getvalue()))
             except Exception as e:
-                errores.append(f"Error en {rel}: {str(e)}")
+                errores.append(f"❌ Error procesando: {rel}\n   Causa: {str(e)}\n   → Intentá generar este reporte de forma individual en la app")
 
         if not reportes:
             raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
@@ -1593,7 +1593,7 @@ async def batch_ospecon(zip_file: UploadFile = File(...)):
             for filename, data in reportes:
                 zout.writestr(filename, data)
             if errores:
-                zout.writestr("errores.txt", "\n".join(errores))
+                zout.writestr("errores.txt", "REPORTES CON ERRORES\n" + "="*50 + "\n\n" + "\n\n".join(errores) + "\n\n" + "="*50 + "\nPara los reportes con error, intentá generarlos de forma individual desde la app.")
 
     output_zip.seek(0)
     return StreamingResponse(output_zip, media_type='application/zip',
@@ -1683,7 +1683,7 @@ async def batch_osprera(zip_file: UploadFile = File(...)):
                     mes_num, anio[-2:])
                 reportes.append((f"{anio[-2:]}.{mes_num}{q_str} - Reporte OSPRERA.xlsx", buf.getvalue()))
             except Exception as e:
-                errores.append(f"Error en {rel}: {str(e)}")
+                errores.append(f"❌ Error procesando: {rel}\n   Causa: {str(e)}\n   → Intentá generar este reporte de forma individual en la app")
 
         if not reportes:
             raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
@@ -1691,7 +1691,7 @@ async def batch_osprera(zip_file: UploadFile = File(...)):
             for filename, data in reportes:
                 zout.writestr(filename, data)
             if errores:
-                zout.writestr("errores.txt", "\n".join(errores))
+                zout.writestr("errores.txt", "REPORTES CON ERRORES\n" + "="*50 + "\n\n" + "\n\n".join(errores) + "\n\n" + "="*50 + "\nPara los reportes con error, intentá generarlos de forma individual desde la app.")
 
     output_zip.seek(0)
     return StreamingResponse(output_zip, media_type='application/zip',
@@ -1728,7 +1728,7 @@ async def batch_unionpersonal(zip_file: UploadFile = File(...)):
             pago_file = find_file(liq_files, 'pago')
 
             if not all([car_files, opf_file, pre_file, pago_file]):
-                errores.append(f"Faltan archivos en: {rel}"); continue
+                errores.append(f"❌ Faltan archivos en: {rel}\n   → Verificá que la carpeta tenga todos los archivos necesarios (Carátula, PRE, Pago, etc.)"); continue
 
             anio_part = next((p for p in parts if p.isdigit() and len(p)==4), None)
             mes_part = next((p for p in parts if any(m in p for m in meses_map.keys())), None)
@@ -1764,7 +1764,7 @@ async def batch_unionpersonal(zip_file: UploadFile = File(...)):
                     mes_num, anio[-2:])
                 reportes.append((f"{anio[-2:]}.{mes_num} - Reporte Union Personal.xlsx", buf.getvalue()))
             except Exception as e:
-                errores.append(f"Error en {rel}: {str(e)}")
+                errores.append(f"❌ Error procesando: {rel}\n   Causa: {str(e)}\n   → Intentá generar este reporte de forma individual en la app")
 
         if not reportes:
             raise HTTPException(status_code=400, detail=f"No se generaron reportes. Errores: {errores}")
@@ -1772,7 +1772,7 @@ async def batch_unionpersonal(zip_file: UploadFile = File(...)):
             for filename, data in reportes:
                 zout.writestr(filename, data)
             if errores:
-                zout.writestr("errores.txt", "\n".join(errores))
+                zout.writestr("errores.txt", "REPORTES CON ERRORES\n" + "="*50 + "\n\n" + "\n\n".join(errores) + "\n\n" + "="*50 + "\nPara los reportes con error, intentá generarlos de forma individual desde la app.")
 
     output_zip.seek(0)
     return StreamingResponse(output_zip, media_type='application/zip',
@@ -1794,20 +1794,49 @@ def detectar_os_desde_nombre(filename):
 def leer_resumen_reporte(xlsx_bytes, filename):
     """Lee la tab Resumen de un reporte generado y devuelve los datos"""
     import tempfile
+    from openpyxl import load_workbook
     with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
         tmp.write(xlsx_bytes)
         tmp_path = tmp.name
     try:
-        sheets = pd.read_excel(tmp_path, sheet_name=None)
-        resumen = sheets.get('Resumen')
-        if resumen is None:
+        wb = load_workbook(tmp_path, data_only=True)
+        if 'Resumen' not in wb.sheetnames:
             return None
-        # Leer todas las tablas de la hoja Resumen
-        result = {'filename': filename, 'sheets': {}}
-        for sheet_name, df in sheets.items():
-            if sheet_name == 'Resumen':
-                result['resumen_raw'] = df
-        return result
+        ws = wb['Resumen']
+        # Leer todas las filas con datos
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            rows.append(row)
+
+        # Tabla 1: fila 1 = headers, fila 2 = datos (índices 0 y 1)
+        # Tabla 2: fila 4 = headers, fila 5 = datos (índices 3 y 4)
+        # Tabla 3: fila 7 = headers, fila 8 = datos (índices 6 y 7)
+        def make_dict(header_row, data_row):
+            if header_row is None or data_row is None:
+                return {}
+            return {str(k): v for k, v in zip(header_row, data_row) if k is not None}
+
+        d1 = make_dict(rows[0] if len(rows) > 0 else None, rows[1] if len(rows) > 1 else None)
+        d2 = make_dict(rows[3] if len(rows) > 3 else None, rows[4] if len(rows) > 4 else None)
+        d3 = make_dict(rows[6] if len(rows) > 6 else None, rows[7] if len(rows) > 7 else None)
+
+        # Crear un DataFrame dummy con la estructura esperada
+        import pandas as pd
+        combined_rows = [
+            list(rows[0]) if len(rows) > 0 else [],
+            list(rows[1]) if len(rows) > 1 else [],
+            [None] * 15,
+            list(rows[3]) if len(rows) > 3 else [],
+            list(rows[4]) if len(rows) > 4 else [],
+            [None] * 15,
+            list(rows[6]) if len(rows) > 6 else [],
+            list(rows[7]) if len(rows) > 7 else [],
+        ]
+        max_cols = max(len(r) for r in combined_rows) if combined_rows else 1
+        padded = [r + [None]*(max_cols - len(r)) for r in combined_rows]
+        df = pd.DataFrame(padded)
+
+        return {'filename': filename, 'resumen_raw': df, 'd1': d1, 'd2': d2, 'd3': d3}
     finally:
         os.unlink(tmp_path)
 
@@ -1862,39 +1891,21 @@ def build_reporte_anual(reportes_data, os_nombre, anio):
     filas_diferencias = []
 
     for rd in sorted(reportes_data, key=lambda x: x['filename']):
-        df = rd['resumen_raw']
-        # Detectar estructura: buscar filas con datos
-        # Tabla 1: fila 1 = headers, fila 2 = datos
-        # Tabla 2: fila 4 = headers, fila 5 = datos
-        # Tabla 3: fila 7 = headers, fila 8 = datos
-        periodo = rd['filename'].replace(' - Reporte.xlsx','').replace(' - Reporte PAMI.xlsx','').replace('.xlsx','')
+        periodo = rd['filename'].replace(' - Reporte.xlsx','').replace(' - Reporte PAMI.xlsx','').replace(' - Reporte IOMA.xlsx','').replace(' - Reporte OSDE.xlsx','').replace(' - Reporte OSPECON.xlsx','').replace(' - Reporte OSPRERA.xlsx','').replace(' - Reporte Union Personal.xlsx','').replace('.xlsx','')
 
-        try:
-            # Tabla principal (fila 0 = headers, fila 1 = datos)
-            row1 = df.iloc[1]
-            headers1 = list(df.iloc[0])
-            d1 = dict(zip(headers1, row1))
+        d1 = rd.get('d1', {})
+        d2 = rd.get('d2', {})
+        d3 = rd.get('d3', {})
+
+        if d1:
             d1['PERIODO'] = periodo
             filas_principales.append(d1)
-        except: pass
-
-        try:
-            # Tabla desglose (fila 3 = headers, fila 4 = datos)
-            row2 = df.iloc[4]
-            headers2 = list(df.iloc[3])
-            d2 = dict(zip(headers2, row2))
+        if d2:
             d2['PERIODO'] = periodo
             filas_desglose.append(d2)
-        except: pass
-
-        try:
-            # Tabla diferencias (fila 6 = headers, fila 7 = datos)
-            row3 = df.iloc[7]
-            headers3 = list(df.iloc[6])
-            d3 = dict(zip(headers3, row3))
+        if d3:
             d3['PERIODO'] = periodo
             filas_diferencias.append(d3)
-        except: pass
 
     # ── TAB 1: Resumen Anual ────────────────────────────────────────────────
     ws1 = wb.create_sheet('Resumen Anual')
