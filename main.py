@@ -2314,6 +2314,42 @@ async def analizar_debitos(request: Request):
 
 
 
+
+@app.post("/debitos/diagnostico")
+async def diagnostico_cofa(
+    cookie_principal: str = Form(...),
+    cookie_ncr: str = Form(...)
+):
+    """
+    Diagnóstico: intenta acceder al tablero COFA con las cookies provistas
+    y devuelve exactamente qué responde el servidor.
+    """
+    headers_ncr = {
+        "Cookie": f"ASPSESSIONIDQETCCSSC={cookie_ncr}",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": "https://principal.cofa.org.ar/Farmacias/",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as cofa:
+        resp = await cofa.post(
+            "https://ncr.cofa.org.ar/tablero/resumen/",
+            data={"PeriodoX": "2025|11|2"},
+            headers=headers_ncr
+        )
+
+    return JSONResponse({
+        "status_code": resp.status_code,
+        "url_final": str(resp.url),
+        "content_length": len(resp.text),
+        "contiene_tablero": "TABLERO" in resp.text.upper() or "LIQUIDACION" in resp.text.upper(),
+        "contiene_login": "TxtFarmacia" in resp.text or "Clave" in resp.text,
+        "contiene_ajuste": "AJUSTE" in resp.text.upper(),
+        "primeros_500_chars": resp.text[:500],
+        "headers_respuesta": dict(resp.headers)
+    })
+
+
 @app.post("/reporte-anual")
 async def reporte_anual(archivos: list[UploadFile] = File(...)):
     if not archivos:
