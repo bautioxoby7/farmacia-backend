@@ -2350,6 +2350,65 @@ async def diagnostico_cofa(
     })
 
 
+
+@app.get("/debitos/ejecutable")
+async def descargar_ejecutable():
+    """Sirve el ejecutable AsistenteCOFA.exe para descarga."""
+    from fastapi.responses import FileResponse
+    import os
+    exe_path = "/app/AsistenteCOFA.exe"
+    if not os.path.exists(exe_path):
+        raise HTTPException(status_code=404, detail="Ejecutable no disponible todavía. Esperá unos minutos y volvé a intentar.")
+    return FileResponse(
+        exe_path,
+        media_type="application/octet-stream",
+        filename="AsistenteCOFA.exe"
+    )
+
+@app.post("/debitos/scrape-local")
+async def scrape_local(request: Request):
+    """
+    Recibe los datos scrapeados por el ejecutable local
+    y genera el análisis con IA.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Body JSON inválido")
+
+    periodo = body.get("periodo", "")
+    ajustes = body.get("ajustes", [])
+
+    if not ajustes:
+        return JSONResponse({
+            "periodo": periodo, "ajustes": [], "total_recetas": 0,
+            "total_monto": 0, "resumen_ia": None,
+            "mensaje": "No se encontraron débitos para este período"
+        })
+
+    resumen = await generar_resumen_ia_debitos(ajustes)
+
+    errores: dict = {}
+    total_recetas = 0
+    for aj in ajustes:
+        for arch in aj.get("archivos", []):
+            nota = arch.get("nota", "Desconocido")
+            errores[nota] = errores.get(nota, 0) + 1
+            total_recetas += 1
+
+    return JSONResponse({
+        "periodo": periodo,
+        "ajustes": ajustes,
+        "total_recetas": total_recetas,
+        "total_monto": round(sum(aj.get("monto", 0) for aj in ajustes), 2),
+        "distribucion_errores": [
+            {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
+            for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "resumen_ia": resumen
+    })
+
+
 @app.post("/reporte-anual")
 async def reporte_anual(archivos: list[UploadFile] = File(...)):
     if not archivos:

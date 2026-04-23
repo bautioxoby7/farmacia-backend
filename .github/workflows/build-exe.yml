@@ -1,0 +1,45 @@
+name: Build Windows EXE
+
+on:
+  push:
+    paths:
+      - 'cofa_scraper.py'
+    branches:
+      - main
+  workflow_dispatch:  # También permite correrlo manualmente
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build EXE
+        run: |
+          pyinstaller --onefile --noconsole --name "AsistenteCOFA" cofa_scraper.py
+
+      - name: Upload EXE as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AsistenteCOFA
+          path: dist/AsistenteCOFA.exe
+          retention-days: 90
+
+      - name: Copy EXE to repo for Railway
+        run: |
+          copy dist\AsistenteCOFA.exe AsistenteCOFA.exe
+
+      - name: Commit EXE to repo
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "build: actualizar AsistenteCOFA.exe"
+          file_pattern: "AsistenteCOFA.exe"
