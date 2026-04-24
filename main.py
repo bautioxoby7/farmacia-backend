@@ -2356,13 +2356,13 @@ async def descargar_ejecutable():
     """Sirve el ejecutable AsistenteCOFA.exe para descarga."""
     from fastapi.responses import FileResponse
     import os
-    exe_path = "/app/AsistenteCOFA.exe"
+    exe_path = "/app/AsistenteCOFA.zip"
     if not os.path.exists(exe_path):
-        raise HTTPException(status_code=404, detail="Ejecutable no disponible todavía. Esperá unos minutos y volvé a intentar.")
+        raise HTTPException(status_code=404, detail="Ejecutable no disponible todavía.")
     return FileResponse(
         exe_path,
-        media_type="application/octet-stream",
-        filename="AsistenteCOFA.exe"
+        media_type="application/zip",
+        filename="AsistenteCOFA.zip"
     )
 
 @app.post("/debitos/scrape-local")
