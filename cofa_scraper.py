@@ -112,7 +112,13 @@ def parsear_archivos_ajuste(html):
     return archivos
 
 
+# Cookie de sesión global (se actualiza con cada login exitoso)
+_session_cookie_ncr = ""
+
 class CofaHandler(BaseHTTPRequestHandler):
+    
+    def _get_session_cookie(self):
+        return _session_cookie_ncr
     
     def log_message(self, format, *args):
         pass  # Silenciar logs del servidor
@@ -193,6 +199,11 @@ class CofaHandler(BaseHTTPRequestHandler):
             )
             cookie_ncr = r3["headers"].get("set-cookie", cookie_ncr).split(";")[0]
         
+        # Guardar la cookie NCR globalmente para usarla en scrape
+        global _session_cookie_ncr
+        if cookie_ncr:
+            _session_cookie_ncr = cookie_ncr.split("=", 1)[-1] if "=" in cookie_ncr else cookie_ncr
+
         result = {
             "login_ok": login_ok,
             "url_final": r2["url"],
@@ -203,12 +214,16 @@ class CofaHandler(BaseHTTPRequestHandler):
         self.respond(result)
     
     def handle_scrape(self, params):
-        """Extrae los débitos del período indicado usando las cookies."""
-        cookie_ncr = params.get("cookie_ncr", "")
+        """Extrae los débitos del período indicado. Usa la sesión activa del usuario."""
+        cookie_ncr = params.get("cookie_ncr", self._get_session_cookie())
         periodo = params.get("periodo", "")
         
-        if not cookie_ncr or not periodo:
-            self.respond({"error": "Faltan parámetros"}, 400)
+        if not periodo:
+            self.respond({"error": "Falta el período"}, 200)
+            return
+        
+        if not cookie_ncr:
+            self.respond({"error": "No hay sesion activa. Por favor hacé login en COFA primero."}, 200)
             return
         
         # 1. POST al resumen con el período
@@ -221,7 +236,7 @@ class CofaHandler(BaseHTTPRequestHandler):
         )
         
         if "servicios.cofa.org.ar" in r["url"] or r["status"] != 200:
-            self.respond({"error": "Sesion expirada", "url": r["url"]}, 401)
+            self.respond({"error": "Sesion expirada o usuario no logueado", "url": r["url"]}, 200)
             return
         
         # 2. Parsear ajustes
