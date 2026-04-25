@@ -2252,120 +2252,6 @@ async def generar_resumen_ia_debitos(ajustes: list[dict]) -> dict:
 
 
 @app.post("/debitos/analizar")
-async def analizar_debitos(request: Request):
-    """
-    Recibe los datos de débitos extraídos por el frontend (browser del usuario)
-    y genera un análisis con IA.
-
-    Body JSON:
-    {
-        "periodo": "2025|11|2",
-        "ajustes": [
-            {
-                "id": "1Q2502",
-                "monto": 148320.50,
-                "archivos": [
-                    {"nombre": "025020318274...", "nota": "Difiere / Falta Troquel r1"},
-                    ...
-                ]
-            }
-        ]
-    }
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Body JSON inválido")
-
-    periodo = body.get("periodo", "")
-    ajustes = body.get("ajustes", [])
-
-    if not ajustes:
-        return JSONResponse({
-            "periodo": periodo,
-            "ajustes": [],
-            "total_recetas": 0,
-            "total_monto": 0,
-            "resumen_ia": None,
-            "mensaje": "No se encontraron débitos para este período"
-        })
-
-    resumen = await generar_resumen_ia_debitos(ajustes)
-
-    errores: dict = {}
-    total_recetas = 0
-    for aj in ajustes:
-        for arch in aj.get("archivos", []):
-            nota = arch.get("nota", "Desconocido")
-            errores[nota] = errores.get(nota, 0) + 1
-            total_recetas += 1
-
-    return JSONResponse({
-        "periodo": periodo,
-        "ajustes": ajustes,
-        "total_recetas": total_recetas,
-        "total_monto": round(sum(aj.get("monto", 0) for aj in ajustes), 2),
-        "distribucion_errores": [
-            {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
-            for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
-        ],
-        "resumen_ia": resumen
-    })
-
-
-
-
-@app.post("/debitos/diagnostico")
-async def diagnostico_cofa(
-    cookie_principal: str = Form(...),
-    cookie_ncr: str = Form(...)
-):
-    """
-    Diagnóstico: intenta acceder al tablero COFA con las cookies provistas
-    y devuelve exactamente qué responde el servidor.
-    """
-    headers_ncr = {
-        "Cookie": f"ASPSESSIONIDQETCCSSC={cookie_ncr}",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Referer": "https://principal.cofa.org.ar/Farmacias/",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as cofa:
-        resp = await cofa.post(
-            "https://ncr.cofa.org.ar/tablero/resumen/",
-            data={"PeriodoX": "2025|11|2"},
-            headers=headers_ncr
-        )
-
-    return JSONResponse({
-        "status_code": resp.status_code,
-        "url_final": str(resp.url),
-        "content_length": len(resp.text),
-        "contiene_tablero": "TABLERO" in resp.text.upper() or "LIQUIDACION" in resp.text.upper(),
-        "contiene_login": "TxtFarmacia" in resp.text or "Clave" in resp.text,
-        "contiene_ajuste": "AJUSTE" in resp.text.upper(),
-        "primeros_500_chars": resp.text[:500],
-        "headers_respuesta": dict(resp.headers)
-    })
-
-
-
-@app.get("/debitos/ejecutable")
-async def descargar_ejecutable():
-    """Sirve el ejecutable AsistenteCOFA.exe para descarga."""
-    from fastapi.responses import FileResponse
-    import os
-    exe_path = "/app/AsistenteCOFA.exe"
-    if not os.path.exists(exe_path):
-        raise HTTPException(status_code=404, detail="Ejecutable no disponible todavía.")
-    return FileResponse(
-        exe_path,
-        media_type="application/octet-stream",
-        filename="AsistenteCOFA.exe"
-    )
-
-@app.post("/debitos/scrape-local")
 async def scrape_local(request: Request):
     """
     Recibe los datos scrapeados por el ejecutable local
@@ -2407,6 +2293,22 @@ async def scrape_local(request: Request):
         ],
         "resumen_ia": resumen
     })
+
+
+
+@app.get("/debitos/extension")
+async def descargar_extension():
+    """Sirve el ZIP de la extensión de Chrome para instalar."""
+    from fastapi.responses import FileResponse
+    import os
+    path = "/app/extension_cofa.zip"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Extensión no disponible.")
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename="AsistenteCOFA_Extension.zip"
+    )
 
 
 @app.post("/reporte-anual")
