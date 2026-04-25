@@ -2311,6 +2311,30 @@ async def descargar_extension():
     )
 
 
+
+# Cache en memoria para el último análisis (se pierde al reiniciar Railway)
+_ultimo_analisis_cache = {}
+
+@app.post("/debitos/guardar")
+async def guardar_analisis(request: Request):
+    """La extensión guarda el análisis acá. La app lo lee después."""
+    try:
+        body = await request.json()
+        farmacia_id = body.get("farmacia_id", "default")
+        _ultimo_analisis_cache[farmacia_id] = body
+        return JSONResponse({"ok": True})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/debitos/ultimo")
+async def obtener_ultimo_analisis(farmacia_id: str = "default"):
+    """La app lee el último análisis guardado por la extensión."""
+    data = _ultimo_analisis_cache.get(farmacia_id)
+    if not data:
+        return JSONResponse({"disponible": False})
+    return JSONResponse({"disponible": True, "data": data})
+
+
 @app.post("/reporte-anual")
 async def reporte_anual(archivos: list[UploadFile] = File(...)):
     if not archivos:
