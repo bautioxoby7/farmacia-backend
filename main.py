@@ -2213,122 +2213,94 @@ SYSTEM_DEBITOS = "CRÍTICO: Respondé ÚNICAMENTE con el objeto JSON solicitado.
 
 async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
     """
-    Analiza cada receta individualmente con IA y genera un resumen ejecutivo.
+    Analiza cada receta con Claude Vision.
+    Cada receta tiene dos imágenes (base64) en arch["img_001"] y arch["img_002"].
     """
-    # Construir lista de recetas para análisis
     todas_las_recetas = []
     for aj in ajustes:
         for arch in aj.get("archivos", []):
             todas_las_recetas.append({
                 "ajuste": aj["id"],
                 "nombre": arch["nombre"],
-                "error_pami": arch["nota"]
+                "error_pami": arch.get("nota", ""),
+                "img_001": arch.get("img_001"),
+                "img_002": arch.get("img_002"),
             })
 
     if not todas_las_recetas:
         return {"recetas_analizadas": [], "resumen": {}}
 
-    # Análisis por receta
-    recetas_texto = chr(10).join([
-        f"- Receta {r['nombre']}: Error PAMI = {r['error_pami']}"
-        for r in todas_las_recetas
-    ])
+    recetas_analizadas = []
 
-    n = len(todas_las_recetas)
-    prompt_recetas = (
-        f"Analiza {n} recetas debitadas por PAMI. "
-        f"Numero de receta es el nombre del archivo. "
-        f"Lista: {recetas_texto} "
-        "Devuelve JSON: {recetas:[{numero_receta,error_pami,tipo_error,descripcion,medicamento_probable,accion_correctiva,gravedad}], "
-        "resumen:{conclusion,error_principal,recomendaciones}}"
-    )
+    for receta in todas_las_recetas:
+        # Construir contenido con imágenes si están disponibles
+        content_parts = []
 
-    msg = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        system=SYSTEM_DEBITOS,
-        messages=[{"role": "user", "content": prompt_recetas}]
-    )
+        for key in ["img_001", "img_002"]:
+            img_b64 = receta.get(key)
+            if img_b64:
+                # Quitar prefijo data:image/png;base64, si existe
+                if "," in img_b64:
+                    img_b64 = img_b64.split(",", 1)[1]
+                content_parts.append({
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": "image/png", "data": img_b64}
+                })
 
+        nombre = receta["nombre"]
+        error = receta["error_pami"]
+        prompt = (
+            f"Analiza esta receta PAMI debitada. Numero de receta: {nombre}. "
+            f"Error PAMI indicado: {error}. "
+            "Extrae en JSON: numero_receta, afiliado_nombre, afiliado_numero, "
+            "medico_matricula, "
+            "medicamentos (lista con nombre/cantidad/troquel_prescripto), "
+            "troqueles_pegados (lista de codigos visibles en la receta), "
+            "error_detectado (por que difieren troquel pegado y prescripto), "
+            "accion_correctiva, gravedad (alta/media/baja)"
+        )
+
+        content_parts.append({"type": "text", "text": prompt})
+
+        try:
+            msg = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=800,
+                system=SYSTEM_DEBITOS,
+                messages=[{"role": "user", "content": content_parts}]
+            )
+            resultado = parse_json(msg.content[0].text)
+            resultado["error_pami"] = receta["error_pami"]
+            recetas_analizadas.append(resultado)
+        except Exception as e:
+            recetas_analizadas.append({
+                "numero_receta": receta["nombre"],
+                "error_pami": receta["error_pami"],
+                "error_detectado": f"Error al analizar: {str(e)}",
+                "gravedad": "media"
+            })
+
+    # Resumen general
     try:
-        resultado = parse_json(msg.content[0].text)
-        return resultado
+        errores = [r.get("error_detectado", "") for r in recetas_analizadas]
+        resumen_prompt = (
+            f"Analiza estos {len(recetas_analizadas)} errores de débito PAMI de una farmacia: "
+            + "; ".join(errores[:10])
+            + ". Genera JSON: {conclusion, error_principal, recomendaciones: [3 recomendaciones concretas]}"
+        )
+        msg_res = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=500,
+            system=SYSTEM_DEBITOS,
+            messages=[{"role": "user", "content": resumen_prompt}]
+        )
+        resumen = parse_json(msg_res.content[0].text)
     except Exception:
-        return {
-            "recetas": [{"numero_receta": r["nombre"], "error_pami": r["error_pami"], 
-                        "tipo_error": r["error_pami"], "descripcion": r["error_pami"],
-                        "medicamento_probable": None, "accion_correctiva": "Revisar proceso",
-                        "gravedad": "media"} for r in todas_las_recetas],
-            "resumen": {"conclusion": f"Se analizaron {len(todas_las_recetas)} recetas", 
-                       "error_principal": "", "recomendaciones": []}
-        }
+        resumen = {"conclusion": f"Se analizaron {len(recetas_analizadas)} recetas debitadas", "recomendaciones": []}
+
+    return {"recetas_analizadas": recetas_analizadas, "resumen": resumen}
 
 
-
-@app.post("/debitos/analizar")
-async def scrape_local(request: Request):
-    """
-    Recibe los datos scrapeados por el ejecutable local
-    y genera el análisis con IA.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Body JSON inválido")
-
-    periodo = body.get("periodo", "")
-    ajustes = body.get("ajustes", [])
-
-    if not ajustes:
-        return JSONResponse({
-            "periodo": periodo, "ajustes": [], "total_recetas": 0,
-            "total_monto": 0, "resumen_ia": None,
-            "mensaje": "No se encontraron débitos para este período"
-        })
-
-    analisis = await analizar_recetas_con_ia(ajustes)
-
-    errores: dict = {}
-    total_recetas = 0
-    for aj in ajustes:
-        for arch in aj.get("archivos", []):
-            nota = arch.get("nota", "Desconocido")
-            errores[nota] = errores.get(nota, 0) + 1
-            total_recetas += 1
-
-    return JSONResponse({
-        "periodo": periodo,
-        "ajustes": ajustes,
-        "total_recetas": total_recetas,
-        "total_monto": round(sum(aj.get("monto", 0) for aj in ajustes), 2),
-        "distribucion_errores": [
-            {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
-            for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
-        ],
-        "recetas_analizadas": analisis.get("recetas", []),
-        "resumen_ia": analisis.get("resumen", {})
-    })
-
-
-
-@app.get("/debitos/extension")
-async def descargar_extension():
-    """Sirve el ZIP de la extensión de Chrome para instalar."""
-    from fastapi.responses import FileResponse
-    import os
-    path = "/app/extension_cofa.zip"
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Extensión no disponible.")
-    return FileResponse(
-        path,
-        media_type="application/zip",
-        filename="AsistenteCOFA_Extension.zip"
-    )
-
-
-
-# Cache en memoria para el último análisis (se pierde al reiniciar Railway)
-_ultimo_analisis_cache = {}
 
 @app.post("/debitos/guardar")
 async def guardar_analisis(request: Request):
