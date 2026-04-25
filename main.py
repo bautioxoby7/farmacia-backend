@@ -2211,44 +2211,58 @@ def build_reporte_anual(reportes_data, os_nombre, anio):
 SYSTEM_DEBITOS = "CRÍTICO: Respondé ÚNICAMENTE con el objeto JSON solicitado. Sin texto, sin explicaciones, sin markdown. Empezá con { y terminá con }."
 
 
-async def generar_resumen_ia_debitos(ajustes: list[dict]) -> dict:
-    """Genera resumen ejecutivo con recomendaciones basado en los patrones de error."""
-    errores: dict = {}
-    total_recetas = 0
+async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
+    """
+    Analiza cada receta individualmente con IA y genera un resumen ejecutivo.
+    """
+    # Construir lista de recetas para análisis
+    todas_las_recetas = []
     for aj in ajustes:
         for arch in aj.get("archivos", []):
-            nota = arch.get("nota", "Desconocido")
-            errores[nota] = errores.get(nota, 0) + 1
-            total_recetas += 1
+            todas_las_recetas.append({
+                "ajuste": aj["id"],
+                "nombre": arch["nombre"],
+                "error_pami": arch["nota"]
+            })
 
-    if total_recetas == 0:
-        return {"conclusion_principal": "No se encontraron recetas debitadas", "recomendaciones": []}
+    if not todas_las_recetas:
+        return {"recetas_analizadas": [], "resumen": {}}
 
-    errores_lista = sorted(errores.items(), key=lambda x: x[1], reverse=True)
-    errores_texto = chr(10).join(
-        f"- {nota}: {count} recetas ({round(count/total_recetas*100)}%)"
-        for nota, count in errores_lista
-    )
+    # Análisis por receta
+    recetas_texto = chr(10).join([
+        f"- Receta {r['nombre']}: Error PAMI = {r['error_pami']}"
+        for r in todas_las_recetas
+    ])
 
-    prompt = (
-        "Analiza los siguientes debitos de PAMI de una farmacia argentina. "
-        f"Total de recetas debitadas: {total_recetas}. "
-        f"Distribucion de errores: {errores_texto}. "
-        "Genera un analisis en JSON con los campos: "
-        "conclusion_principal, patron_dominante, "
-        "recomendaciones (lista con prioridad/accion/detalle), proceso_a_revisar"
+    n = len(todas_las_recetas)
+    prompt_recetas = (
+        f"Analiza {n} recetas debitadas por PAMI. "
+        f"Numero de receta es el nombre del archivo. "
+        f"Lista: {recetas_texto} "
+        "Devuelve JSON: {recetas:[{numero_receta,error_pami,tipo_error,descripcion,medicamento_probable,accion_correctiva,gravedad}], "
+        "resumen:{conclusion,error_principal,recomendaciones}}"
     )
 
     msg = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=800,
+        max_tokens=2000,
         system=SYSTEM_DEBITOS,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt_recetas}]
     )
+
     try:
-        return parse_json(msg.content[0].text)
+        resultado = parse_json(msg.content[0].text)
+        return resultado
     except Exception:
-        return {"conclusion_principal": f"Se detectaron {total_recetas} recetas debitadas", "recomendaciones": []}
+        return {
+            "recetas": [{"numero_receta": r["nombre"], "error_pami": r["error_pami"], 
+                        "tipo_error": r["error_pami"], "descripcion": r["error_pami"],
+                        "medicamento_probable": None, "accion_correctiva": "Revisar proceso",
+                        "gravedad": "media"} for r in todas_las_recetas],
+            "resumen": {"conclusion": f"Se analizaron {len(todas_las_recetas)} recetas", 
+                       "error_principal": "", "recomendaciones": []}
+        }
+
 
 
 @app.post("/debitos/analizar")
@@ -2272,7 +2286,7 @@ async def scrape_local(request: Request):
             "mensaje": "No se encontraron débitos para este período"
         })
 
-    resumen = await generar_resumen_ia_debitos(ajustes)
+    analisis = await analizar_recetas_con_ia(ajustes)
 
     errores: dict = {}
     total_recetas = 0
@@ -2291,7 +2305,8 @@ async def scrape_local(request: Request):
             {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
             for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
         ],
-        "resumen_ia": resumen
+        "recetas_analizadas": analisis.get("recetas", []),
+        "resumen_ia": analisis.get("resumen", {})
     })
 
 
