@@ -2302,6 +2302,9 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
 
 
 
+# Cache en memoria para el último análisis
+_ultimo_analisis_cache = {}
+
 @app.post("/debitos/guardar")
 async def guardar_analisis(request: Request):
     """La extensión guarda el análisis acá. La app lo lee después."""
