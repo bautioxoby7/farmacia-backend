@@ -2244,7 +2244,7 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
                     img_b64 = img_b64.split(",", 1)[1]
                 content_parts.append({
                     "type": "image",
-                    "source": {"type": "base64", "media_type": "image/png", "data": img_b64}
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}
                 })
 
         nombre = receta["nombre"]
@@ -2335,7 +2335,7 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
                     img_b64 = img_b64.split(",", 1)[1]
                 content_parts.append({
                     "type": "image",
-                    "source": {"type": "base64", "media_type": "image/png", "data": img_b64}
+                    "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}
                 })
 
         nombre = receta["nombre"]
