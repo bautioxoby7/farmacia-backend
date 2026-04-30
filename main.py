@@ -553,3 +553,5 @@ from debitos import router as debitos_router
 
 app.include_router(reportes_router)
 app.include_router(debitos_router)
+from cajas import router as cajas_router
+app.include_router(cajas_router)
