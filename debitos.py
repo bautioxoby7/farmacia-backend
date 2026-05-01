@@ -54,13 +54,35 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
         nombre = receta["nombre"]
         error = receta["error_pami"]
         prompt = (
-            f"Analiza esta receta PAMI debitada. Numero de receta: {nombre}. "
-            f"Error PAMI indicado: {error}. "
-            "Extrae en JSON: numero_receta, afiliado_nombre, afiliado_numero, "
-            "medico_matricula, "
-            "medicamentos (lista con nombre/cantidad/troquel_prescripto), "
-            "troqueles_pegados (lista de codigos visibles en la receta), "
-            "error_detectado (por que difieren troquel pegado y prescripto), "
+            "Analiza esta receta PAMI debitada siguiendo estos pasos en orden:\n"
+            "PASO 1 - ORIENTACION: Si la imagen esta girada, rotar mentalmente para leerla correctamente.\n"
+            "PASO 2 - MEDICAMENTOS PRESCRIPTOS: Identificar cada medicamento con nombre completo, "
+            "cantidad de unidades, precio unitario, precio total y porcentaje de cobertura PAMI (ej: 100%, 60%, 50%, 40%).\n"
+            "PASO 3 - TROQUELES PEGADOS: Leer cada codigo de barras pegado en la receta e identificar "
+            "a que medicamento pertenece (nombre y presentacion exacta que figura en el troquel).\n"
+            "PASO 4 - COMPARACION: Por cada medicamento prescripto verificar si el troquel pegado coincide "
+            "exactamente en nombre, mg, cantidad y forma farmaceutica. Casos posibles:\n"
+            "  - CORRECTO: el troquel coincide exactamente con el medicamento prescripto\n"
+            "  - DIFIERE: el troquel es de otro medicamento o presentacion diferente\n"
+            "  - FALTA: no hay troquel pegado para ese medicamento\n"
+            "  - DUPLICADO: el mismo troquel aparece mas de una vez (una cuenta como correcto, las demas como incorrectas)\n"
+            "PASO 5 - CALCULO DE MONTO DEBITADO: Para cada medicamento INCORRECTO (difiere, falta o duplicado extra):\n"
+            "  monto_debitado = precio_total_medicamento_incorrecto x (porcentaje_cobertura - 30) / 100\n"
+            "  Ejemplo: medicamento $10.000 con 100% cobertura -> $10.000 x 70% = $7.000\n"
+            "  Ejemplo: medicamento $10.000 con 60% cobertura -> $10.000 x 30% = $3.000\n"
+            "  Los medicamentos CORRECTOS no se debitan.\n"
+            "PASO 6 - CONFIANZA: Indicar si el analisis es confiable o si hay dudas por imagen borrosa, "
+            "troqueles ilegibles o situacion ambigua. Si hay dudas marcar confianza_baja: true.\n\n"
+            "Numero de receta: " + nombre + ". Error PAMI indicado: " + error + ".\n\n"
+            "Responder UNICAMENTE con JSON con estos campos:\n"
+            "numero_receta, afiliado_nombre, afiliado_numero, medico_matricula,\n"
+            "medicamentos (lista con: nombre, cantidad, precio_unitario, precio_total, cobertura_pct, troquel_estado, troquel_descripcion),\n"
+            "troqueles_pegados (lista de codigos y descripcion de cada troquel),\n"
+            "error_detectado (descripcion especifica del error),\n"
+            "monto_debitado (numero, suma de todos los medicamentos incorrectos x formula arriba),\n"
+            "detalle_calculo (explicacion paso a paso del calculo),\n"
+            "confianza_baja (true/false),\n"
+            "motivo_duda (si confianza_baja es true, explicar por que),\n"
             "accion_correctiva, gravedad (alta/media/baja)"
         )
 
@@ -69,7 +91,7 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
         try:
             msg = client.messages.create(
                 model="claude-sonnet-4-20250514",
-                max_tokens=800,
+                max_tokens=1500,
                 system=SYSTEM_DEBITOS,
                 messages=[{"role": "user", "content": content_parts}]
             )
@@ -147,12 +169,19 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
         prompt = (
             "Analiza esta receta PAMI debitada. Numero de receta: " + nombre + ". "
             "Error PAMI indicado: " + error + ". "
-            "Extrae en JSON: numero_receta, afiliado_nombre, afiliado_numero, "
+            "Extrae en JSON los siguientes campos: "
+            "numero_receta, "
+            "afiliado_nombre (apellido y nombre del afiliado), "
+            "afiliado_numero (numero de afiliado PAMI), "
             "medico_matricula, "
-            "medicamentos (lista con nombre/cantidad/troquel_prescripto), "
-            "troqueles_pegados (lista de codigos visibles en la receta), "
-            "error_detectado (por que difieren troquel pegado y prescripto), "
-            "accion_correctiva, gravedad (alta/media/baja)"
+            "medicamentos (lista con nombre, cantidad, precio y si el troquel es correcto o no), "
+            "troqueles_pegados (lista de codigos de barras pegados en la receta), "
+            "error_detectado (explicacion especifica de por que PAMI debito esta receta, "
+            "indicando que troquel no coincide con que medicamento), "
+            "monto_debitado (sumar solo el precio de los medicamentos con troquel INCORRECTO, "
+            "ya que PAMI paga los que tienen troquel correcto y debita solo los incorrectos), "
+            "accion_correctiva (que hacer para evitar este error), "
+            "gravedad (alta/media/baja)"
         )
         content_parts.append({"type": "text", "text": prompt})
 
