@@ -23,15 +23,18 @@ def seleccionar_imagen_frente(img_001: str, img_002: str) -> str:
 
 def detectar_intercambio_cruzado(recetas: list) -> list:
     """
-    Detecta recetas del mismo afiliado donde los troqueles incorrectos
-    de una coinciden con los medicamentos de la otra.
+    Detecta recetas del mismo afiliado Y mismo ajuste donde los troqueles
+    incorrectos de una coinciden con los medicamentos de la otra.
     """
-    por_afiliado = {}
+    por_afiliado_ajuste = {}
     for r in recetas:
         num = r.get("afiliado_numero") or r.get("afiliado_nombre", "desconocido")
-        if num not in por_afiliado:
-            por_afiliado[num] = []
-        por_afiliado[num].append(r)
+        ajuste = r.get("ajuste", "")
+        key = num + "|" + ajuste
+        if key not in por_afiliado_ajuste:
+            por_afiliado_ajuste[key] = []
+        por_afiliado_ajuste[key].append(r)
+    por_afiliado = por_afiliado_ajuste
 
     for afiliado, grupo in por_afiliado.items():
         if len(grupo) < 2:
