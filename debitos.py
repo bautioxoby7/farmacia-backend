@@ -6,19 +6,59 @@ from main import client, parse_json
 
 router = APIRouter()
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DÉBITOS PAMI — El scraping lo hace el frontend (browser del usuario)
-# El backend solo recibe los datos y genera el análisis con IA
-# ══════════════════════════════════════════════════════════════════════════════
-
-SYSTEM_DEBITOS = "CRÍTICO: Respondé ÚNICAMENTE con el objeto JSON solicitado. Sin texto, sin explicaciones, sin markdown. Empezá con { y terminá con }."
+SYSTEM_DEBITOS = "CRITICO: Responde UNICAMENTE con el objeto JSON solicitado. Sin texto, sin explicaciones, sin markdown. Empieza con { y termina con }."
 
 
-async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
+def seleccionar_imagen_frente(img_001: str, img_002: str) -> str:
     """
-    Analiza cada receta con Claude Vision.
-    Cada receta tiene dos imágenes (base64) en arch["img_001"] y arch["img_002"].
+    Devuelve la imagen del frente de la receta.
+    El frente tiene mas contenido (medicamentos, precios, troqueles) y pesa mas.
+    """
+    if img_001 and img_002:
+        tam_001 = len(img_001.split(",", 1)[1] if "," in img_001 else img_001)
+        tam_002 = len(img_002.split(",", 1)[1] if "," in img_002 else img_002)
+        return img_001 if tam_001 > tam_002 else img_002
+    return img_002 or img_001
+
+
+def detectar_intercambio_cruzado(recetas: list) -> list:
+    """
+    Detecta recetas del mismo afiliado donde los troqueles incorrectos
+    de una coinciden con los medicamentos de la otra.
+    """
+    por_afiliado = {}
+    for r in recetas:
+        num = r.get("afiliado_numero") or r.get("afiliado_nombre", "desconocido")
+        if num not in por_afiliado:
+            por_afiliado[num] = []
+        por_afiliado[num].append(r)
+
+    for afiliado, grupo in por_afiliado.items():
+        if len(grupo) < 2:
+            continue
+        for i in range(len(grupo)):
+            for j in range(i + 1, len(grupo)):
+                r1, r2 = grupo[i], grupo[j]
+                meds_r1 = [m.get("nombre", "").upper()[:6] for m in r1.get("medicamentos", []) if m.get("nombre")]
+                meds_r2 = [m.get("nombre", "").upper()[:6] for m in r2.get("medicamentos", []) if m.get("nombre")]
+                troqs_r1 = [str(t.get("descripcion", "") if isinstance(t, dict) else t).upper() for t in r1.get("troqueles_pegados", [])]
+                troqs_r2 = [str(t.get("descripcion", "") if isinstance(t, dict) else t).upper() for t in r2.get("troqueles_pegados", [])]
+
+                cruce = any(m in t for m in meds_r1 for t in troqs_r2 if len(m) > 3) or \
+                        any(m in t for m in meds_r2 for t in troqs_r1 if len(m) > 3)
+
+                if cruce:
+                    r1["intercambio_cruzado"] = True
+                    r1["intercambio_con"] = r2.get("numero_receta", "")
+                    r2["intercambio_cruzado"] = True
+                    r2["intercambio_con"] = r1.get("numero_receta", "")
+
+    return recetas
+
+
+async def analizar_recetas_con_ia(ajustes: list) -> dict:
+    """
+    Analiza cada receta con Claude Vision usando solo el frente.
     """
     todas_las_recetas = []
     for aj in ajustes:
@@ -37,53 +77,48 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
     recetas_analizadas = []
 
     for receta in todas_las_recetas:
-        # Construir contenido con imágenes si están disponibles
         content_parts = []
 
-        for key in ["img_001", "img_002"]:
-            img_b64 = receta.get(key)
-            if img_b64:
-                # Quitar prefijo data:image/png;base64, si existe
-                if "," in img_b64:
-                    img_b64 = img_b64.split(",", 1)[1]
-                content_parts.append({
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}
-                })
+        img_frente = seleccionar_imagen_frente(receta.get("img_001"), receta.get("img_002"))
+
+        if img_frente:
+            img_b64 = img_frente.split(",", 1)[1] if "," in img_frente else img_frente
+            content_parts.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}
+            })
 
         nombre = receta["nombre"]
         error = receta["error_pami"]
+
         prompt = (
-            "Analiza esta receta PAMI debitada siguiendo estos pasos en orden:\n"
-            "PASO 1 - ORIENTACION: Si la imagen esta girada, rotar mentalmente para leerla correctamente.\n"
+            "Analiza esta receta PAMI debitada siguiendo estos pasos en orden.\n\n"
+            "PASO 1 - ORIENTACION: Si la imagen esta girada, rotala mentalmente para leerla.\n\n"
             "PASO 2 - MEDICAMENTOS PRESCRIPTOS: Identificar cada medicamento con nombre completo, "
-            "cantidad de unidades, precio unitario, precio total y porcentaje de cobertura PAMI (ej: 100%, 60%, 50%, 40%).\n"
-            "PASO 3 - TROQUELES PEGADOS: Leer cada codigo de barras pegado en la receta e identificar "
-            "a que medicamento pertenece (nombre y presentacion exacta que figura en el troquel).\n"
-            "PASO 4 - COMPARACION: Por cada medicamento prescripto verificar si el troquel pegado coincide "
-            "exactamente en nombre, mg, cantidad y forma farmaceutica. Casos posibles:\n"
-            "  - CORRECTO: el troquel coincide exactamente con el medicamento prescripto\n"
-            "  - DIFIERE: el troquel es de otro medicamento o presentacion diferente\n"
-            "  - FALTA: no hay troquel pegado para ese medicamento\n"
-            "  - DUPLICADO: el mismo troquel aparece mas de una vez (una cuenta como correcto, las demas como incorrectas)\n"
-            "PASO 5 - CALCULO DE MONTO DEBITADO: Para cada medicamento INCORRECTO (difiere, falta o duplicado extra):\n"
-            "  monto_debitado = precio_total_medicamento_incorrecto x (porcentaje_cobertura - 30) / 100\n"
-            "  Ejemplo: medicamento $10.000 con 100% cobertura -> $10.000 x 70% = $7.000\n"
-            "  Ejemplo: medicamento $10.000 con 60% cobertura -> $10.000 x 30% = $3.000\n"
-            "  Los medicamentos CORRECTOS no se debitan.\n"
-            "PASO 6 - CONFIANZA: Indicar si el analisis es confiable o si hay dudas por imagen borrosa, "
-            "troqueles ilegibles o situacion ambigua. Si hay dudas marcar confianza_baja: true.\n\n"
-            "Numero de receta: " + nombre + ". Error PAMI indicado: " + error + ".\n\n"
-            "Responder UNICAMENTE con JSON con estos campos:\n"
+            "cantidad de unidades, precio unitario, precio total y porcentaje de cobertura PAMI "
+            "(el % figura al lado del precio, ej: 100%, 60%, 50%, 40%).\n\n"
+            "PASO 3 - TROQUELES PEGADOS: Leer cada troquel pegado en la receta. "
+            "Identificar el medicamento leyendo el TEXTO del troquel "
+            "(nombre, mg, cantidad, forma farmaceutica). No adivinar por el codigo de barras.\n\n"
+            "PASO 4 - COMPARACION por cada medicamento prescripto:\n"
+            "  CORRECTO: troquel coincide exactamente en nombre, mg, cantidad y presentacion\n"
+            "  DIFIERE: es de otro medicamento o presentacion diferente\n"
+            "  FALTA: no hay troquel para ese medicamento\n"
+            "  DUPLICADO: mismo troquel mas de una vez (uno correcto, los demas incorrectos)\n\n"
+            "PASO 5 - CALCULO para cada medicamento INCORRECTO:\n"
+            "  monto = precio_total x (porcentaje_cobertura - 30) / 100\n"
+            "  Ej 100%: $10.000 x 70% = $7.000\n"
+            "  Ej 60%: $10.000 x 30% = $3.000\n"
+            "  Sumar todos los incorrectos.\n\n"
+            "PASO 6 - CONFIANZA: si hay dudas por imagen borrosa o situacion ambigua, "
+            "marcar confianza_baja: true.\n\n"
+            "Numero de receta: " + nombre + ". Error PAMI: " + error + ".\n\n"
+            "Responder SOLO con JSON:\n"
             "numero_receta, afiliado_nombre, afiliado_numero, medico_matricula,\n"
-            "medicamentos (lista con: nombre, cantidad, precio_unitario, precio_total, cobertura_pct, troquel_estado, troquel_descripcion),\n"
-            "troqueles_pegados (lista de codigos y descripcion de cada troquel),\n"
-            "error_detectado (descripcion especifica del error),\n"
-            "monto_debitado (numero, suma de todos los medicamentos incorrectos x formula arriba),\n"
-            "detalle_calculo (explicacion paso a paso del calculo),\n"
-            "confianza_baja (true/false),\n"
-            "motivo_duda (si confianza_baja es true, explicar por que),\n"
-            "accion_correctiva, gravedad (alta/media/baja)"
+            "medicamentos [{nombre, cantidad, precio_unitario, precio_total, cobertura_pct, troquel_estado, troquel_descripcion}],\n"
+            "troqueles_pegados [{codigo, descripcion}],\n"
+            "error_detectado, monto_debitado, detalle_calculo,\n"
+            "confianza_baja, motivo_duda, accion_correctiva, gravedad"
         )
 
         content_parts.append({"type": "text", "text": prompt})
@@ -97,118 +132,31 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
             )
             resultado = parse_json(msg.content[0].text)
             resultado["error_pami"] = receta["error_pami"]
+            resultado["ajuste"] = receta["ajuste"]
             recetas_analizadas.append(resultado)
         except Exception as e:
             recetas_analizadas.append({
                 "numero_receta": receta["nombre"],
                 "error_pami": receta["error_pami"],
+                "ajuste": receta["ajuste"],
                 "error_detectado": f"Error al analizar: {str(e)}",
+                "monto_debitado": 0,
+                "confianza_baja": True,
+                "motivo_duda": str(e),
                 "gravedad": "media"
             })
+
+    # Chequeo cruzado de pacientes
+    recetas_analizadas = detectar_intercambio_cruzado(recetas_analizadas)
 
     # Resumen general
     try:
-        errores = [r.get("error_detectado", "") for r in recetas_analizadas]
-        resumen_prompt = (
-            f"Analiza estos {len(recetas_analizadas)} errores de débito PAMI de una farmacia: "
-            + "; ".join(errores[:10])
-            + ". Genera JSON: {conclusion, error_principal, recomendaciones: [3 recomendaciones concretas]}"
-        )
-        msg_res = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=500,
-            system=SYSTEM_DEBITOS,
-            messages=[{"role": "user", "content": resumen_prompt}]
-        )
-        resumen = parse_json(msg_res.content[0].text)
-    except Exception:
-        resumen = {"conclusion": f"Se analizaron {len(recetas_analizadas)} recetas debitadas", "recomendaciones": []}
-
-    return {"recetas_analizadas": recetas_analizadas, "resumen": resumen}
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DÉBITOS PAMI
-# ══════════════════════════════════════════════════════════════════════════════
-
-SYSTEM_DEBITOS = "CRITICO: Responde UNICAMENTE con el objeto JSON solicitado. Sin texto, sin explicaciones, sin markdown. Empieza con { y termina con }."
-
-
-async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
-    todas_las_recetas = []
-    for aj in ajustes:
-        for arch in aj.get("archivos", []):
-            todas_las_recetas.append({
-                "ajuste": aj["id"],
-                "nombre": arch["nombre"],
-                "error_pami": arch.get("nota", ""),
-                "img_001": arch.get("img_001"),
-                "img_002": arch.get("img_002"),
-            })
-
-    if not todas_las_recetas:
-        return {"recetas_analizadas": [], "resumen": {}}
-
-    recetas_analizadas = []
-
-    for receta in todas_las_recetas:
-        content_parts = []
-        for key in ["img_001", "img_002"]:
-            img_b64 = receta.get(key)
-            if img_b64:
-                if "," in img_b64:
-                    img_b64 = img_b64.split(",", 1)[1]
-                content_parts.append({
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": "image/jpeg", "data": img_b64}
-                })
-
-        nombre = receta["nombre"]
-        error = receta["error_pami"]
-        prompt = (
-            "Analiza esta receta PAMI debitada. Numero de receta: " + nombre + ". "
-            "Error PAMI indicado: " + error + ". "
-            "Extrae en JSON los siguientes campos: "
-            "numero_receta, "
-            "afiliado_nombre (apellido y nombre del afiliado), "
-            "afiliado_numero (numero de afiliado PAMI), "
-            "medico_matricula, "
-            "medicamentos (lista con nombre, cantidad, precio y si el troquel es correcto o no), "
-            "troqueles_pegados (lista de codigos de barras pegados en la receta), "
-            "error_detectado (explicacion especifica de por que PAMI debito esta receta, "
-            "indicando que troquel no coincide con que medicamento), "
-            "monto_debitado (sumar solo el precio de los medicamentos con troquel INCORRECTO, "
-            "ya que PAMI paga los que tienen troquel correcto y debita solo los incorrectos), "
-            "accion_correctiva (que hacer para evitar este error), "
-            "gravedad (alta/media/baja)"
-        )
-        content_parts.append({"type": "text", "text": prompt})
-
-        try:
-            msg = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=800,
-                system=SYSTEM_DEBITOS,
-                messages=[{"role": "user", "content": content_parts}]
-            )
-            resultado = parse_json(msg.content[0].text)
-            resultado["error_pami"] = receta["error_pami"]
-            recetas_analizadas.append(resultado)
-        except Exception as e:
-            recetas_analizadas.append({
-                "numero_receta": receta["nombre"],
-                "error_pami": receta["error_pami"],
-                "error_detectado": str(e),
-                "gravedad": "media"
-            })
-
-    try:
-        errores = [r.get("error_detectado", "") for r in recetas_analizadas]
+        errores_txt = [r.get("error_detectado", "") for r in recetas_analizadas]
+        intercambios = [r for r in recetas_analizadas if r.get("intercambio_cruzado")]
         resumen_prompt = (
             "Analiza estos " + str(len(recetas_analizadas)) + " errores de debito PAMI: "
-            + "; ".join(errores[:10])
-            + ". Genera JSON: {conclusion, error_principal, recomendaciones: [3 recomendaciones]}"
+            + "; ".join(errores_txt[:10])
+            + ". Genera JSON: {conclusion, error_principal, recomendaciones: [3 acciones concretas]}"
         )
         msg_res = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -217,8 +165,13 @@ async def analizar_recetas_con_ia(ajustes: list[dict]) -> dict:
             messages=[{"role": "user", "content": resumen_prompt}]
         )
         resumen = parse_json(msg_res.content[0].text)
+        if intercambios:
+            resumen["alerta_intercambio"] = (
+                f"Se detectaron {len(intercambios)} recetas del mismo afiliado con posible "
+                "intercambio de troqueles. Revisar para posible reclamo a PAMI."
+            )
     except Exception:
-        resumen = {"conclusion": str(len(recetas_analizadas)) + " recetas debitadas", "recomendaciones": []}
+        resumen = {"conclusion": f"{len(recetas_analizadas)} recetas analizadas", "recomendaciones": []}
 
     return {"recetas_analizadas": recetas_analizadas, "resumen": resumen}
 
@@ -234,9 +187,11 @@ async def analizar_debitos(request: Request):
     ajustes = body.get("ajustes", [])
 
     if not ajustes:
-        return JSONResponse({"periodo": periodo, "ajustes": [], "total_recetas": 0,
-                             "total_monto": 0, "resumen_ia": None,
-                             "mensaje": "No se encontraron debitos"})
+        return JSONResponse({
+            "periodo": periodo, "ajustes": [], "total_recetas": 0,
+            "total_monto": 0, "resumen_ia": None,
+            "mensaje": "No se encontraron debitos"
+        })
 
     analisis = await analizar_recetas_con_ia(ajustes)
 
@@ -254,7 +209,7 @@ async def analizar_debitos(request: Request):
         "total_recetas": total_recetas,
         "total_monto": round(sum(aj.get("monto", 0) for aj in ajustes), 2),
         "distribucion_errores": [
-            {"nota": k, "count": v, "porcentaje": round(v/total_recetas*100, 1)}
+            {"nota": k, "count": v, "porcentaje": round(v / total_recetas * 100, 1)}
             for k, v in sorted(errores.items(), key=lambda x: x[1], reverse=True)
         ],
         "recetas_analizadas": analisis.get("recetas_analizadas", []),
@@ -265,9 +220,9 @@ async def analizar_debitos(request: Request):
 # Cache en memoria para el último análisis
 _ultimo_analisis_cache = {}
 
+
 @router.post("/debitos/guardar")
 async def guardar_analisis(request: Request):
-    """La extensión guarda el análisis acá. La app lo lee después."""
     try:
         body = await request.json()
         farmacia_id = body.get("farmacia_id", "default")
@@ -276,11 +231,10 @@ async def guardar_analisis(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.get("/debitos/ultimo")
 async def obtener_ultimo_analisis(farmacia_id: str = "default"):
-    """La app lee el último análisis guardado por la extensión."""
     data = _ultimo_analisis_cache.get(farmacia_id)
     if not data:
         return JSONResponse({"disponible": False})
     return JSONResponse({"disponible": True, "data": data})
-
